@@ -20,44 +20,47 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Install Qt Host Tools (Linux Desktop)
-        uses: jurplel/install-qt-action@v3
+      - name: Install Qt 6.7.2 for Android
+        uses: jurplel/install-qt-action@v4
         with:
           version: '6.7.2'
-          target: 'desktop'
-
-      - name: Install Qt Target (Android)
-        uses: jurplel/install-qt-action@v3
-        with:
-          version: '6.7.2'
+          host: 'linux'
           target: 'android'
           arch: 'android_arm64_v8a'
-          modules: 'qtmultimedia'
+          modules: 'qtmultimedia qt5compat'
+          cache: true
 
-      - name: Compile C++ to APK
+      - name: Build APK
         run: |
-          mkdir build
-          cd build
-          
-          
-          export ANDROID_COMPILE_SDK=34
-          
-          QT_ANDROID_CMAKE=${{ runner.workspace }}/Qt/6.7.2/android_arm64_v8a/bin/qt-cmake
-          QT_HOST_DIR=${{ runner.workspace }}/Qt/6.7.2/gcc_64
-          
+          mkdir -p build && cd build
+
+          QT_ANDROID_CMAKE="${{ github.workspace }}/Qt/6.7.2/android_arm64_v8a/bin/qt-cmake"
+          QT_HOST_PATH="${{ github.workspace }}/Qt/6.7.2/gcc_64"
+
           $QT_ANDROID_CMAKE .. \
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DQT_HOST_PATH=$QT_HOST_DIR \
-            -DANDROID_SDK_ROOT=$ANDROID_HOME \
-            -DANDROID_NDK_ROOT=$ANDROID_NDK_LATEST_HOME \
-            -DCMAKE_ANDROID_API=34
-            
-          cmake --build .
-          cmake --build . --target apk
+            -DQT_HOST_PATH=$QT_HOST_PATH \
+            -DCMAKE_ANDROID_API=34 \
+            -DQT_ANDROID_API_LEVEL=34 \
+            -DQT_ANDROID_COMPILE_SDK_VERSION=34 \
+            -DQT_ANDROID_TARGET_SDK_VERSION=34 \
+            -DQT_ANDROID_MIN_SDK_VERSION=28 \
+            -DQT_ANDROID_ABIS="arm64-v8a" \
+            -DQT_ANDROID_BUILD_ALL_ABIS=OFF \
+            -DANDROID_SDK_ROOT=$ANDROID_SDK_ROOT \
+            -DANDROID_NDK_ROOT=$ANDROID_NDK_ROOT \
+            -DCMAKE_FIND_ROOT_PATH="${{ github.workspace }}/Qt/6.7.2/android_arm64_v8a"
 
-      - name: Upload Final APK
+          cmake --build . --config Release -j$(nproc)
+          cmake --build . --target apk --config Release
+
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: CaviaBioacoustics-App
-          path: build/**/*.apk
+          path: |
+            build/*.apk
+            build/android-build/*.apk
+            build/android-build/appCaviaBioacoustics.apk
+          if-no-files-found: error
