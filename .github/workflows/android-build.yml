@@ -30,12 +30,22 @@ jobs:
           modules: 'qtmultimedia qt5compat'
           cache: true
 
+      - name: Debug Qt Installation
+        run: |
+          echo "Qt Root: $QT_ROOT_DIR"
+          echo "Qt Android Path: $QT_ANDROID"
+          ls -la $QT_ROOT_DIR/6.7.2/ || echo "Qt dir not found"
+          find $QT_ROOT_DIR -name "qt-cmake" -type f | head -5 || echo "qt-cmake not found"
+
       - name: Build APK
         run: |
           mkdir -p build && cd build
 
-          QT_ANDROID_CMAKE="${{ github.workspace }}/Qt/6.7.2/android_arm64_v8a/bin/qt-cmake"
-          QT_HOST_PATH="${{ github.workspace }}/Qt/6.7.2/gcc_64"
+    
+          QT_ANDROID_CMAKE=$(which qt-cmake || echo "${QT_ROOT_DIR}/6.7.2/android_arm64_v8a/bin/qt-cmake")
+          QT_HOST_PATH="${QT_ROOT_DIR}/6.7.2/gcc_64"
+
+          echo "Using qt-cmake: $QT_ANDROID_CMAKE"
 
           $QT_ANDROID_CMAKE .. \
             -G Ninja \
@@ -48,9 +58,8 @@ jobs:
             -DQT_ANDROID_MIN_SDK_VERSION=28 \
             -DQT_ANDROID_ABIS="arm64-v8a" \
             -DQT_ANDROID_BUILD_ALL_ABIS=OFF \
-            -DANDROID_SDK_ROOT=$ANDROID_SDK_ROOT \
-            -DANDROID_NDK_ROOT=$ANDROID_NDK_ROOT \
-            -DCMAKE_FIND_ROOT_PATH="${{ github.workspace }}/Qt/6.7.2/android_arm64_v8a"
+            -DCMAKE_PREFIX_PATH="${QT_ROOT_DIR}/6.7.2/android_arm64_v8a" \
+            -DCMAKE_FIND_ROOT_PATH="${QT_ROOT_DIR}/6.7.2/android_arm64_v8a"
 
           cmake --build . --config Release -j$(nproc)
           cmake --build . --target apk --config Release
