@@ -15,10 +15,10 @@ target_link_libraries(appCaviaBioacoustics
     PRIVATE Qt6::Quick Qt6::Multimedia
 )
 
-# Android specific settings
+# Android settings
 if(ANDROID)
     set_target_properties(appCaviaBioacoustics PROPERTIES
-        QT_ANDROID_PACKAGE_NAME "com.example.caviabioacoustics"
+        QT_ANDROID_PACKAGE_NAME "com.caviabioacoustics.app"
         QT_ANDROID_APP_NAME "Cavia Bioacoustics"
         QT_ANDROID_MIN_SDK_VERSION 28
         QT_ANDROID_TARGET_SDK_VERSION 34
