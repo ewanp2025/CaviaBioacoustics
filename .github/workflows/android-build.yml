@@ -20,7 +20,7 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Install Qt 6.7.2 (Host + Android)
+      - name: Install Qt 6.7.2 for Android
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.7.2'
@@ -29,7 +29,16 @@ jobs:
           arch: 'android_arm64_v8a'
           modules: 'qtmultimedia qt5compat'
           cache: true
-          dir: '${{ github.workspace }}/Qt'  
+          dir: '${{ github.workspace }}/Qt'    
+
+      - name: Debug Qt Installation
+        run: |
+          echo "=== Qt Debug ==="
+          echo "QT_ROOT_DIR = $QT_ROOT_DIR"
+          echo "QT_HOST_PATH = $QT_HOST_PATH"
+          which qt-cmake || echo "qt-cmake not in PATH"
+          ls -la /home/runner/work/CaviaBioacoustics/CaviaBioacoustics/Qt/6.7.2/android_arm64_v8a/bin/qt-cmake || echo "qt-cmake missing"
+          ls -la /home/runner/work/CaviaBioacoustics/CaviaBioacoustics/Qt/6.7.2/gcc_64/bin/qt-cmake || echo "host qt-cmake missing"
 
       - name: Build APK
         run: |
@@ -39,11 +48,7 @@ jobs:
           QT_ANDROID_CMAKE="${QT_BASE}/android_arm64_v8a/bin/qt-cmake"
           QT_HOST_PATH="${QT_BASE}/gcc_64"
 
-          echo "=== Qt Paths ==="
-          echo "QT_BASE          = $QT_BASE"
-          echo "QT_HOST_PATH     = $QT_HOST_PATH"
-          echo "QT_ANDROID_CMAKE = $QT_ANDROID_CMAKE"
-          ls -la "$QT_ANDROID_CMAKE" || echo "ERROR: qt-cmake not found"
+          echo "Using qt-cmake: $QT_ANDROID_CMAKE"
 
           "$QT_ANDROID_CMAKE" .. \
             -G Ninja \
@@ -55,7 +60,11 @@ jobs:
             -DQT_ANDROID_COMPILE_SDK_VERSION=34 \
             -DQT_ANDROID_TARGET_SDK_VERSION=34 \
             -DQT_ANDROID_MIN_SDK_VERSION=28 \
-            -DQT_ANDROID_ABIS="arm64-v8a"
+            -DQT_ANDROID_ABIS="arm64-v8a" \
+            -DQT_ANDROID_BUILD_ALL_ABIS=OFF
+
+          cmake --build . --config Release -j$(nproc)
+          cmake --build . --target apk --config Release
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
