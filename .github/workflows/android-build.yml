@@ -20,7 +20,13 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Install Qt for Android
+      - name: Install Qt Host Tools (Linux Desktop)
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: '6.7.2'
+          target: 'desktop'
+
+      - name: Install Qt Target (Android)
         uses: jurplel/install-qt-action@v3
         with:
           version: '6.7.2'
@@ -32,15 +38,11 @@ jobs:
           mkdir build
           cd build
           
-         
-          QT_BIN_DIR=$(dirname $(which qt-cmake))
-          QT_ANDROID_DIR=$(dirname $QT_BIN_DIR)
-          QT_HOST_DIR=$(dirname $QT_ANDROID_DIR)/gcc_64
+
+          QT_ANDROID_CMAKE=${{ runner.workspace }}/Qt/6.7.2/android_arm64_v8a/bin/qt-cmake
+          QT_HOST_DIR=${{ runner.workspace }}/Qt/6.7.2/gcc_64
           
-          echo "Detected Android Qt path: $QT_ANDROID_DIR"
-          echo "Detected Host Qt path: $QT_HOST_DIR"
-          
-          qt-cmake .. \
+          $QT_ANDROID_CMAKE .. \
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DQT_HOST_PATH=$QT_HOST_DIR \
