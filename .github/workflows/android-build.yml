@@ -32,13 +32,13 @@ jobs:
           version: '6.7.2'
           target: 'android'
           arch: 'android_arm64_v8a'
+          modules: 'qtmultimedia'  # <--- THIS IS THE FIX
 
       - name: Compile C++ to APK
         run: |
           mkdir build
           cd build
           
-
           QT_ANDROID_CMAKE=${{ runner.workspace }}/Qt/6.7.2/android_arm64_v8a/bin/qt-cmake
           QT_HOST_DIR=${{ runner.workspace }}/Qt/6.7.2/gcc_64
           
