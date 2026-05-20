@@ -205,7 +205,7 @@ void CaviaAnalyzer::startRecording() {
         emit statusChanged();
         return;
     }
-    // -------------------------------------------
+
 
     m_translations.clear();
     if (spectrogram) spectrogram->clear();
@@ -487,7 +487,7 @@ ApplicationWindow {
             }
         }
         
-        // --- PRIVACY POLICY LINK ---
+
         Text {
             text: "<a href='https://github.com/ewanp2025/CaviaBioacoustics'>Privacy Policy</a>"
             color: "#58a6ff"
