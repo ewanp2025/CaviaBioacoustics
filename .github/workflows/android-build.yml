@@ -31,15 +31,6 @@ jobs:
           cache: true
           dir: '${{ github.workspace }}/Qt'    
 
-      - name: Debug Qt Installation
-        run: |
-          echo "=== Qt Debug ==="
-          echo "QT_ROOT_DIR = $QT_ROOT_DIR"
-          echo "QT_HOST_PATH = $QT_HOST_PATH"
-          which qt-cmake || echo "qt-cmake not in PATH"
-          ls -la /home/runner/work/CaviaBioacoustics/CaviaBioacoustics/Qt/6.7.2/android_arm64_v8a/bin/qt-cmake || echo "qt-cmake missing"
-          ls -la /home/runner/work/CaviaBioacoustics/CaviaBioacoustics/Qt/6.7.2/gcc_64/bin/qt-cmake || echo "host qt-cmake missing"
-
       - name: Remove Incompatible Android SDKs
         run: |
           echo "Removing SDK 35 and 36 to force fallback to SDK 34..."
@@ -56,7 +47,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Debug \
             -DQT_HOST_PATH="$QT_HOST_PATH" \
             -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" \
-            -DANDROID_PLATFORM=android-35 \
+            -DANDROID_PLATFORM=android-34 \
             -DQT_ANDROID_ABIS="arm64-v8a;armeabi-v7a" \
             -DQT_ANDROID_BUILD_ALL_ABIS=ON
 
@@ -72,7 +63,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DQT_HOST_PATH="$QT_HOST_PATH" \
             -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" \
-            -DANDROID_PLATFORM=android-35 \
+            -DANDROID_PLATFORM=android-34 \
             -DQT_ANDROID_ABIS="arm64-v8a;armeabi-v7a" \
             -DQT_ANDROID_BUILD_ALL_ABIS=ON
 
@@ -90,3 +81,17 @@ jobs:
           keyPassword: ${{ secrets.KEY_PASSWORD }}
         env:
           BUILD_TOOLS_VERSION: "34.0.0"
+
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CaviaBioacoustics-Debug-APK
+          path: build_debug/**/*.apk
+
+      - name: Upload Signed Release Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: CaviaBioacoustics-Signed-Release-Builds
+          path: |
+            build_release/**/*-signed.apk
+            build_release/**/*.aab
