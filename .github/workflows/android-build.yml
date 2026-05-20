@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Android APK and AAB
 
 on:
   push:
@@ -40,14 +40,13 @@ jobs:
           ls -la /home/runner/work/CaviaBioacoustics/CaviaBioacoustics/Qt/6.7.2/android_arm64_v8a/bin/qt-cmake || echo "qt-cmake missing"
           ls -la /home/runner/work/CaviaBioacoustics/CaviaBioacoustics/Qt/6.7.2/gcc_64/bin/qt-cmake || echo "host qt-cmake missing"
 
-      
       - name: Remove Incompatible Android SDKs
         run: |
           echo "Removing SDK 35 and 36 to force fallback to SDK 34..."
           rm -rf $ANDROID_HOME/platforms/android-35*
           rm -rf $ANDROID_HOME/platforms/android-36*
 
-      - name: Build APK
+      - name: Build APK and AAB
         run: |
           mkdir -p build && cd build
 
@@ -55,7 +54,7 @@ jobs:
 
           echo "Using qt-cmake: $QT_ANDROID_CMAKE"
 
-           "$QT_ANDROID_CMAKE" .. \
+          "$QT_ANDROID_CMAKE" .. \
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DQT_HOST_PATH="$QT_HOST_PATH" \
@@ -64,16 +63,19 @@ jobs:
             -DQT_ANDROID_ABIS="arm64-v8a;armeabi-v7a" \
             -DQT_ANDROID_BUILD_ALL_ABIS=ON
 
-
           cmake --build . --config Release -j$(nproc)
+          
+          # Build the APK for direct phone testing
           cmake --build . --target apk --config Release
+          
+          # Build the AAB for the Google Play Store
+          cmake --build . --target aab --config Release
 
-      - name: Upload APK
+      - name: Upload Android Builds
         uses: actions/upload-artifact@v4
         with:
-          name: CaviaBioacoustics-App
+          name: CaviaBioacoustics-Builds
           path: |
-            build/*.apk
-            build/android-build/*.apk
-            build/android-build/appCaviaBioacoustics.apk
+            build/**/*.apk
+            build/**/*.aab
           if-no-files-found: error
