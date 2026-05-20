@@ -15,4 +15,4 @@ The App does not integrate with third-party tracking, analytics, or advertising 
 I may update my Privacy Policy from time to time. I will notify you of any changes by posting the new Privacy Policy on this page and updating the "Effective Date" at the top.
 
 5. Contact Me
-If you have any questions or suggestions about this Privacy Policy, please contact me at: .
+If you have any questions or suggestions about this Privacy Policy, please contact me at: ewanpe2025@gmail.com.
