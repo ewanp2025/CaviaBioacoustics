@@ -55,15 +55,15 @@ jobs:
 
           echo "Using qt-cmake: $QT_ANDROID_CMAKE"
 
-         
-          "$QT_ANDROID_CMAKE" .. \
+           "$QT_ANDROID_CMAKE" .. \
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DQT_HOST_PATH="$QT_HOST_PATH" \
             -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" \
             -DANDROID_PLATFORM=android-34 \
-            -DQT_ANDROID_ABIS="arm64-v8a" \
-            -DQT_ANDROID_BUILD_ALL_ABIS=OFF
+            -DQT_ANDROID_ABIS="arm64-v8a;armeabi-v7a" \
+            -DQT_ANDROID_BUILD_ALL_ABIS=ON
+
 
           cmake --build . --config Release -j$(nproc)
           cmake --build . --target apk --config Release
