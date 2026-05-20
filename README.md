@@ -1,5 +1,7 @@
 # Cavia Bioacoustics
 
+Work In Progress
+
 A realtime audio analysis mobile app for classifying and translating the vocalisations of domestic Guinea Pigs (*Cavia porcellus*) and Capybaras (*Hydrochoerus hydrochaeris*).
 
 ## Features
