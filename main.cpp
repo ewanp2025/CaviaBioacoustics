@@ -422,6 +422,14 @@ ApplicationWindow {
                 currentIndex: backend.currentSpecies
                 onCurrentIndexChanged: backend.currentSpecies = currentIndex
                 enabled: !backend.isRecording
+
+                contentItem: Text {
+                        text: parent.displayText
+                        color: "white"
+                        font: parent.font
+                        verticalAlignment: Text.AlignVCenter
+                        leftPadding: 12
+                }    
             }
         }
 
@@ -471,6 +479,8 @@ ApplicationWindow {
             color: "white"
             font.bold: true
             font.pixelSize: 15
+
+            visible: backend.translations.length > 0
         }
 
         ListView {
@@ -489,7 +499,7 @@ ApplicationWindow {
         
 
         Text {
-            text: "<a href='https://github.com/ewanp2025/CaviaBioacoustics'>Privacy Policy</a>"
+            text: "<a href='https://raw.githubusercontent.com/ewanp2025/CaviaBioacoustics/PRIVACY.md'>Privacy Policy</a>"
             color: "#58a6ff"
             font.pixelSize: 13
             Layout.alignment: Qt.AlignHCenter
