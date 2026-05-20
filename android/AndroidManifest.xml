@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<manifest package="com.caviabioacoustics.app" xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <application android:icon="@drawable/icon" android:label="Cavia Bioacoustics">
+        </application>
+</manifest>
