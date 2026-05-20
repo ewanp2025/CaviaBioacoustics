@@ -46,36 +46,44 @@ jobs:
           rm -rf $ANDROID_HOME/platforms/android-35*
           rm -rf $ANDROID_HOME/platforms/android-36*
 
-      - name: Build APK and AAB
+      - name: Build Debug APK
         run: |
-          mkdir -p build && cd build
+          mkdir -p build_debug && cd build_debug
           QT_ANDROID_CMAKE="${QT_ROOT_DIR}/bin/qt-cmake"
-
-          echo "Using qt-cmake: $QT_ANDROID_CMAKE"
-
-          # Change CMAKE_BUILD_TYPE to Debug
+          
           "$QT_ANDROID_CMAKE" .. \
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
             -DQT_HOST_PATH="$QT_HOST_PATH" \
             -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" \
-            -DANDROID_PLATFORM=android-34 \
+            -DANDROID_PLATFORM=android-35 \
             -DQT_ANDROID_ABIS="arm64-v8a;armeabi-v7a" \
             -DQT_ANDROID_BUILD_ALL_ABIS=ON
 
-          cmake --build . --config Debug -j$(nproc)
-          
-          # Build the APK for direct phone testing
           cmake --build . --target apk --config Debug
-          
-          # Build the AAB for the Google Play Store
-          cmake --build . --target aab --config Debug
 
-      - name: Upload Android Builds
-        uses: actions/upload-artifact@v4
+      - name: Build Release APK and AAB
+        run: |
+          mkdir -p build_release && cd build_release
+          QT_ANDROID_CMAKE="${QT_ROOT_DIR}/bin/qt-cmake"
+          
+          "$QT_ANDROID_CMAKE" .. \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQT_HOST_PATH="$QT_HOST_PATH" \
+            -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" \
+            -DANDROID_PLATFORM=android-35 \
+            -DQT_ANDROID_ABIS="arm64-v8a;armeabi-v7a" \
+            -DQT_ANDROID_BUILD_ALL_ABIS=ON
+
+          cmake --build . --target apk --config Release
+          cmake --build . --target aab --config Release
+
+      - name: Sign Release APK and AAB
+        uses: r0adkll/sign-android-release@v1
+        id: sign_app
         with:
-          name: CaviaBioacoustics-Builds
-          path: |
-            build/**/*.apk
-            build/**/*.aab
-          if-no-files-found: error
+          releaseDirectory: build_release/
+          signingKeyBase64: ${{ secrets.KEYSTORE_BASE64 }}
+          alias: ${{ secrets.KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
