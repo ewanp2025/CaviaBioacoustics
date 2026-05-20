@@ -40,11 +40,10 @@ jobs:
           ls -la /home/runner/work/CaviaBioacoustics/CaviaBioacoustics/Qt/6.7.2/android_arm64_v8a/bin/qt-cmake || echo "qt-cmake missing"
           ls -la /home/runner/work/CaviaBioacoustics/CaviaBioacoustics/Qt/6.7.2/gcc_64/bin/qt-cmake || echo "host qt-cmake missing"
 
-- name: Build APK
+      - name: Build APK
         run: |
           mkdir -p build && cd build
 
-       
           QT_ANDROID_CMAKE="${QT_ROOT_DIR}/bin/qt-cmake"
 
           echo "Using qt-cmake: $QT_ANDROID_CMAKE"
