@@ -1,43 +1,76 @@
-name: Qt6 Android Build
+name: Build Android APK
 
 on:
   push:
-    branches:
-      - main
-  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
 
 jobs:
-  android-build:
+  build:
+    name: Compile Android App
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Java
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: 17
+          java-version: '17'
+          distribution: 'temurin'
 
-      - name: Install Qt 6 Android
+      - name: Install Qt 6.7.2 for Android
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.7.2'
+          host: 'linux'
           target: 'android'
           arch: 'android_arm64_v8a'
+          modules: 'qtmultimedia qt5compat'
+          cache: true
+          dir: '${{ github.workspace }}/Qt'    
 
-      - name: Configure project
+      - name: Debug Qt Installation
         run: |
-          qt-cmake . \
-            -DANDROID_ABI=arm64-v8a \
-            -DCMAKE_BUILD_TYPE=Release
+          echo "=== Qt Debug ==="
+          echo "QT_ROOT_DIR = $QT_ROOT_DIR"
+          echo "QT_HOST_PATH = $QT_HOST_PATH"
+          which qt-cmake || echo "qt-cmake not in PATH"
+          ls -la /home/runner/work/CaviaBioacoustics/CaviaBioacoustics/Qt/6.7.2/android_arm64_v8a/bin/qt-cmake || echo "qt-cmake missing"
+          ls -la /home/runner/work/CaviaBioacoustics/CaviaBioacoustics/Qt/6.7.2/gcc_64/bin/qt-cmake || echo "host qt-cmake missing"
 
-      - name: Build APK
-        run: cmake --build . --parallel
+- name: Build APK
+        run: |
+          mkdir -p build && cd build
 
-      - name: Upload artifacts
+       
+          QT_ANDROID_CMAKE="${QT_ROOT_DIR}/bin/qt-cmake"
+
+          echo "Using qt-cmake: $QT_ANDROID_CMAKE"
+
+          "$QT_ANDROID_CMAKE" .. \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQT_HOST_PATH="$QT_HOST_PATH" \
+            -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" \
+            -DCMAKE_ANDROID_API=34 \
+            -DQT_ANDROID_API_LEVEL=34 \
+            -DQT_ANDROID_COMPILE_SDK_VERSION=34 \
+            -DQT_ANDROID_TARGET_SDK_VERSION=34 \
+            -DQT_ANDROID_MIN_SDK_VERSION=28 \
+            -DQT_ANDROID_ABIS="arm64-v8a" \
+            -DQT_ANDROID_BUILD_ALL_ABIS=OFF
+
+          cmake --build . --config Release -j$(nproc)
+          cmake --build . --target apk --config Release
+
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: android-build
-          path: build/
+          name: CaviaBioacoustics-App
+          path: |
+            build/*.apk
+            build/android-build/*.apk
+            build/android-build/appCaviaBioacoustics.apk
+          if-no-files-found: error
