@@ -489,7 +489,7 @@ ApplicationWindow {
         
         // --- PRIVACY POLICY LINK ---
         Text {
-            text: "<a href='https://github.com/yourusername/CaviaBioacoustics'>Privacy Policy</a>"
+            text: "<a href='https://github.com/ewanp2025/CaviaBioacoustics'>Privacy Policy</a>"
             color: "#58a6ff"
             font.pixelSize: 13
             Layout.alignment: Qt.AlignHCenter
