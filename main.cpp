@@ -10,6 +10,7 @@
 #include <QImage>
 #include <QThread>
 #include <QMutex>
+#include <QPermissions>
 #include <vector>
 #include <complex>
 #include <cmath>
@@ -21,7 +22,6 @@ const int FALLBACK_SAMPLE_RATE = 48000;
 const int MAX_SPECTROGRAM_WIDTH = 1200;
 const int FFT_SIZE = 2048;
 const int HOP_SIZE = FFT_SIZE / 4;
-
 
 class FFT {
 public:
@@ -58,7 +58,6 @@ private:
     }
 };
 
-
 class SpectrogramItem : public QQuickPaintedItem {
     Q_OBJECT
 public:
@@ -74,7 +73,6 @@ public:
             img = QImage(MAX_SPECTROGRAM_WIDTH, magnitudes.size(), QImage::Format_RGB32);
             clear_internal();
         }
-
 
         if (colIndex >= img.width()) {
             QImage newImg = img.copy(1, 0, img.width()-1, img.height());
@@ -114,7 +112,6 @@ private:
     QMutex mutex;
 };
 
-
 class CaviaAnalyzer : public QObject {
     Q_OBJECT
     Q_PROPERTY(QStringList translations READ translations NOTIFY translationsChanged)
@@ -137,7 +134,6 @@ public:
     QString status() const { return m_status; }
 
     void setCurrentSpecies(int idx);
-
     Q_INVOKABLE void toggleRecording();
 
 signals:
@@ -193,11 +189,28 @@ void CaviaAnalyzer::toggleRecording() {
 void CaviaAnalyzer::startRecording() {
     if (m_isRecording) return;
 
+    // ----- REQUEST RUNTIME MIC PERMISSIONS -----
+    QMicrophonePermission micPermission;
+    auto permissionStatus = qApp->checkPermission(micPermission);
+
+    if (permissionStatus == Qt::PermissionStatus::Undetermined) {
+        m_status = "Requesting microphone access...";
+        emit statusChanged();
+        qApp->requestPermission(micPermission, this, &CaviaAnalyzer::startRecording);
+        return;
+    }
+
+    if (permissionStatus == Qt::PermissionStatus::Denied) {
+        m_status = "Microphone permission denied! Cannot record.";
+        emit statusChanged();
+        return;
+    }
+    // -------------------------------------------
+
     m_translations.clear();
     if (spectrogram) spectrogram->clear();
     audioBuffer.clear();
     emit translationsChanged();
-
 
     QAudioFormat format;
     format.setChannelCount(1);
@@ -236,9 +249,8 @@ void CaviaAnalyzer::startRecording() {
 
     m_isRecording = true;
 
-
     if (sampleRate < TARGET_SAMPLE_RATE) {
-        m_status = QString("Recording @ %1 kHz (Warning: USVs >24kHz blocked by mic hardware)").arg(sampleRate / 1000.0);
+        m_status = QString("Recording @ %1 kHz (Warning: USVs >24kHz blocked)").arg(sampleRate / 1000.0);
     } else {
         m_status = QString("Recording @ %1 kHz (High-Fidelity USV Enabled)").arg(sampleRate / 1000.0);
     }
@@ -255,7 +267,6 @@ void CaviaAnalyzer::startRecording() {
 
 void CaviaAnalyzer::stopRecording() {
     if (!m_isRecording) return;
-
     if (audioSource) audioSource->stop();
     m_isRecording = false;
     m_status = "Ready";
@@ -272,14 +283,12 @@ void CaviaAnalyzer::processAudioChunk(const QByteArray& chunk) {
     audioBuffer.append(chunk);
     const int16_t* data = reinterpret_cast<const int16_t*>(audioBuffer.constData());
     int totalSamples = audioBuffer.size() / sizeof(int16_t);
-
     static int sampleOffset = 0;
 
     while (sampleOffset + FFT_SIZE <= totalSamples) {
         analyzeFrame(data, sampleOffset, sampleRate);
         sampleOffset += HOP_SIZE;
     }
-
 
     if (audioBuffer.size() > FFT_SIZE * 20 * sizeof(int16_t)) {
         audioBuffer.remove(0, sampleOffset * sizeof(int16_t) - FFT_SIZE * sizeof(int16_t));
@@ -289,9 +298,8 @@ void CaviaAnalyzer::processAudioChunk(const QByteArray& chunk) {
 
 void CaviaAnalyzer::analyzeFrame(const int16_t* data, int offset, int sr) {
     std::vector<std::complex<double>> frame(FFT_SIZE);
-
     for (int i = 0; i < FFT_SIZE; ++i) {
-        double window = 0.5 * (1 - std::cos(2 * M_PI * i / (FFT_SIZE - 1))); // Hann Window
+        double window = 0.5 * (1 - std::cos(2 * M_PI * i / (FFT_SIZE - 1)));
         frame[i] = std::complex<double>(data[offset + i] * window, 0.0);
     }
 
@@ -301,8 +309,6 @@ void CaviaAnalyzer::analyzeFrame(const int16_t* data, int offset, int sr) {
     double maxMag = 1e-8;
     int peakBin = 0;
     double peakFreq = 0;
-
-
     double minFreq = (m_species == Capybara) ? 50.0 : 200.0;
     double maxFreq = 40000.0;
 
@@ -312,7 +318,6 @@ void CaviaAnalyzer::analyzeFrame(const int16_t* data, int offset, int sr) {
             mags[k] = 0;
             continue;
         }
-
         double mag = std::abs(frame[k]);
         mags[k] = mag;
         if (mag > maxMag) {
@@ -322,10 +327,8 @@ void CaviaAnalyzer::analyzeFrame(const int16_t* data, int offset, int sr) {
         }
     }
 
-
     for (double& m : mags) m = std::min(1.0, m / (maxMag * 1.5));
     if (spectrogram) spectrogram->addColumn(mags);
-
 
     static bool inCall = false;
     static double callStart = 0;
@@ -348,8 +351,6 @@ void CaviaAnalyzer::analyzeFrame(const int16_t* data, int offset, int sr) {
         inCall = false;
         double duration = (callFrames * HOP_SIZE) / static_cast<double>(sr);
         double avgFreq = freqSum / callFrames;
-
-
         if (duration >= 0.025) {
             classifyCall(avgFreq, duration, callStart);
         }
@@ -358,9 +359,7 @@ void CaviaAnalyzer::analyzeFrame(const int16_t* data, int offset, int sr) {
 
 void CaviaAnalyzer::classifyCall(double freq, double duration, double timestamp) {
     QString callType;
-
     if (m_species == GuineaPig) {
-
         if (freq > 22000) callType = "Pup Distress USV";
         else if (freq >= 3500) callType = "Chirrup / Scream (Alarm/Distress)";
         else if (freq > 500) callType = "Whistle / Wheek (Food Anticipation)";
@@ -368,11 +367,9 @@ void CaviaAnalyzer::classifyCall(double freq, double duration, double timestamp)
         else if (freq >= 270) callType = "Purr / Durr (Contentment)";
         else return;
     } else {
-
         if (freq > 25000) {
-            callType = "Ultrasonic Emission (Extreme Physiological Distress)";
+            callType = "Ultrasonic Emission (Distress)";
         } else {
-
             struct Centroid { QString name; double freq; double dur; };
             std::vector<Centroid> centroids = {
                 {"Whistle (Isolation)", 2868, 0.10},
@@ -381,10 +378,8 @@ void CaviaAnalyzer::classifyCall(double freq, double duration, double timestamp)
                 {"Squeal (Agonistic)", 2037, 0.48},
                 {"Whine (Conflict)", 1944, 1.15}
             };
-
             double bestDist = std::numeric_limits<double>::max();
             for (const auto& c : centroids) {
-
                 double d = std::hypot((freq - c.freq), (duration - c.dur) * 1000);
                 if (d < bestDist) {
                     bestDist = d;
@@ -394,18 +389,12 @@ void CaviaAnalyzer::classifyCall(double freq, double duration, double timestamp)
         }
     }
 
-
-    QString entry = QString::asprintf("[%.2fs] %s | %.0f Hz | %.2fs",
-                                      timestamp, qPrintable(callType), freq, duration);
-
-
+    QString entry = QString::asprintf("[%.2fs] %s | %.0f Hz | %.2fs", timestamp, qPrintable(callType), freq, duration);
     if (m_translations.isEmpty() || !m_translations.last().contains(QString::asprintf("[%.2fs]", timestamp))) {
         m_translations.prepend(entry);
         emit translationsChanged();
     }
 }
-
-
 
 const char* qmlData = R"QML(
 import QtQuick
@@ -439,7 +428,7 @@ ApplicationWindow {
         Button {
             Layout.fillWidth: true
             height: 56
-            text: backend.isRecording ? "STOP RECORDING" : "START RECORDING (15s max)"
+            text: backend.isRecording ? "STOP RECORDING" : "START RECORDING"
             font.bold: true
             font.pixelSize: 16
             onClicked: backend.toggleRecording()
@@ -461,6 +450,7 @@ ApplicationWindow {
             text: backend.status
             color: "#58a6ff"
             font.pixelSize: 13
+            Layout.alignment: Qt.AlignHCenter
         }
 
         Rectangle {
@@ -496,13 +486,21 @@ ApplicationWindow {
                 wrapMode: Text.Wrap
             }
         }
+        
+        // --- PRIVACY POLICY LINK ---
+        Text {
+            text: "<a href='https://github.com/yourusername/CaviaBioacoustics'>Privacy Policy</a>"
+            color: "#58a6ff"
+            font.pixelSize: 13
+            Layout.alignment: Qt.AlignHCenter
+            onLinkActivated: (link) => Qt.openUrlExternally(link)
+        }
     }
 }
 )QML";
 
 int main(int argc, char *argv[]) {
     QGuiApplication app(argc, argv);
-
     qmlRegisterType<SpectrogramItem>("Bioacoustics", 1, 0, "Spectrogram");
 
     QQmlApplicationEngine engine;
