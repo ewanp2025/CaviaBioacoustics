@@ -7,6 +7,20 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     
     <application android:icon="@drawable/icon" android:label="Cavia Bioacoustics">
-        </application>
-    
+        
+        <activity android:name="org.qtproject.qt.android.bindings.QtActivity"
+                  android:label="Cavia Bioacoustics"
+                  android:exported="true">
+            
+            <meta-data android:name="android.app.lib_name" 
+                       android:value="appCaviaBioacoustics" />
+            
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            
+        </activity>
+        
+    </application>
 </manifest>
