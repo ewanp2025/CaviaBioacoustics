@@ -67,29 +67,14 @@ jobs:
             -DQT_ANDROID_ABIS="arm64-v8a;armeabi-v7a" \
             -DQT_ANDROID_BUILD_ALL_ABIS=ON
 
-          # Build and isolate the APK
           cmake --build . --target apk --config Release
-          mkdir -p apk_out && mv android-build/*.apk apk_out/
-
-          # Build and isolate the AAB
           cmake --build . --target aab --config Release
-          mkdir -p aab_out && mv android-build/*.aab aab_out/
 
-      - name: Sign Release APK
+      - name: Sign Release APK and AAB
         uses: r0adkll/sign-android-release@v1
+        id: sign_app
         with:
-          releaseDirectory: build_release/apk_out/
-          signingKeyBase64: ${{ secrets.KEYSTORE_BASE64 }}
-          alias: ${{ secrets.KEY_ALIAS }}
-          keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
-          keyPassword: ${{ secrets.KEY_PASSWORD }}
-        env:
-          BUILD_TOOLS_VERSION: "34.0.0"
-
-      - name: Sign Release AAB
-        uses: r0adkll/sign-android-release@v1
-        with:
-          releaseDirectory: build_release/aab_out/
+          releaseDirectory: build_release/android-build/
           signingKeyBase64: ${{ secrets.KEYSTORE_BASE64 }}
           alias: ${{ secrets.KEY_ALIAS }}
           keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -108,5 +93,5 @@ jobs:
         with:
           name: CaviaBioacoustics-Signed-Release-Builds
           path: |
-            build_release/apk_out/*.apk
-            build_release/aab_out/*.aab
+            build_release/**/*-signed.apk
+            build_release/**/*.aab
