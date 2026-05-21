@@ -28,10 +28,10 @@
 const int TARGET_SAMPLE_RATE = 48000;
 const int FALLBACK_SAMPLE_RATE = 44100;
 const int MAX_SPECTROGRAM_WIDTH = 1200;
-const int FFT_SIZE = 1024;
-const int HOP_SIZE = FFT_SIZE / 4;
+const int FFT_SIZE = 1024; // 1024 points for optimal frequency resolution
+const int HOP_SIZE = FFT_SIZE / 8; // 87.5% overlap for high temporal resolution (captures micro-pulses)
 
-
+// Placeholder for future ML integration
 class MLClassifier : public QObject {
     Q_OBJECT
 public:
@@ -44,17 +44,14 @@ public:
 
     QString predict(double avgFreq, double duration, double maxMag, const QString& species) {
         if (!m_modelLoaded) return {}; 
-        
-        
-        qDebug() << "ML Inference triggered with Freq:" << avgFreq << "Dur:" << duration << "Mag:" << maxMag;
-        return "ML: High-confidence " + species + " vocalization";
+        return "ML Prediction";
     }
 
 private:
     bool m_modelLoaded = false;
 };
 
-
+// Custom Spectrogram Rendering
 class SpectrogramItem : public QQuickPaintedItem {
     Q_OBJECT
 public:
@@ -92,6 +89,7 @@ void SpectrogramItem::addColumn(const std::vector<double>& magnitudes) {
 
     for (size_t y = 0; y < magnitudes.size() && y < static_cast<size_t>(img.height()); ++y) {
         int intensity = std::clamp(static_cast<int>(magnitudes[y] * 255.0), 0, 255);
+        // Thermal-style color mapping
         int hue = 280 - (intensity * 240 / 255); 
         QColor color = QColor::fromHsv(hue, 255, std::min(255, intensity + 50));
         img.setPixelColor(colIndex, img.height() - 1 - y, color);
@@ -116,7 +114,7 @@ void SpectrogramItem::paint(QPainter* painter) {
     painter->drawImage(boundingRect(), img);
 }
 
-
+// Fast Fourier Transform implementation
 class FFT {
 public:
     static void forward(std::vector<std::complex<double>>& data) {
@@ -150,7 +148,7 @@ private:
     }
 };
 
-
+// Core Analyzer Backend
 class CaviaAnalyzer : public QObject {
     Q_OBJECT
     Q_PROPERTY(QStringList translations READ translations NOTIFY translationsChanged)
@@ -300,7 +298,7 @@ void CaviaAnalyzer::startRecording() {
     }
 
     m_isRecording = true;
-    m_status = QString("Recording @ %1 kHz").arg(sampleRate / 1000.0);
+    m_status = QString("Listening on %1 kHz").arg(sampleRate / 1000.0);
     emit isRecordingChanged();
     emit statusChanged();
 
@@ -334,6 +332,7 @@ void CaviaAnalyzer::processAudioChunk(const QByteArray& chunk) {
         sampleOffset += HOP_SIZE;
     }
 
+    // Keep buffer manageable
     if (audioBuffer.size() > FFT_SIZE * 30 * sizeof(int16_t)) {
         audioBuffer.remove(0, (sampleOffset - FFT_SIZE) * sizeof(int16_t));
         sampleOffset = FFT_SIZE;
@@ -344,8 +343,10 @@ void CaviaAnalyzer::analyzeFrame(const int16_t* data, int offset, int sr) {
     if (m_isPlaying) return;
 
     std::vector<std::complex<double>> frame(FFT_SIZE);
+    
+    // Applying standard Hann window for spectral accuracy
     for (int i = 0; i < FFT_SIZE; ++i) {
-        double window = 0.5 * (1 - std::cos(2 * M_PI * i / (FFT_SIZE - 1)));
+        double window = 0.5 * (1.0 - std::cos(2.0 * M_PI * i / (FFT_SIZE - 1.0)));
         frame[i] = std::complex<double>(data[offset + i] * window, 0.0);
     }
 
@@ -357,6 +358,7 @@ void CaviaAnalyzer::analyzeFrame(const int16_t* data, int offset, int sr) {
     double sumMag = 0;
     double peakFreq = 0;
 
+    // Filter lower frequency hums depending on species
     double minFreq = (m_species == Capybara) ? 50.0 : 200.0;
 
     for (int k = 0; k < FFT_SIZE / 2; ++k) {
@@ -384,6 +386,7 @@ void CaviaAnalyzer::analyzeFrame(const int16_t* data, int offset, int sr) {
     static double freqSum = 0;
     static int callFrames = 0;
 
+    // Detection Threshold
     bool strongSignal = (maxMag > 14000) && (maxMag > avgMag * 6.0);
     double currentTime = offset / static_cast<double>(sr);
 
@@ -404,37 +407,33 @@ void CaviaAnalyzer::analyzeFrame(const int16_t* data, int offset, int sr) {
     }
 }
 
+// Improved Algorithmic Classification based on Bioacoustic Lit
 void CaviaAnalyzer::classifyCall(double freq, double duration, double timestamp, double maxMag) {
-    if (duration < 0.02) return;
+    if (duration < 0.02) return; // Filter out ultra-short artifacts
 
     QString meaning;
     QString speciesStr = (m_species == GuineaPig) ? "Guinea Pig" : "Capybara";
-
-  
     QString mlPrediction = mlClassifier->predict(freq, duration, maxMag, speciesStr);
     
-    if (!mlPrediction.isEmpty()) {
-        meaning = mlPrediction;
-    } else {
-        
-        if (m_species == GuineaPig) {
-            if (freq >= 4500 && duration < 0.05)      meaning = "Ambiguity / Low-Level Stress";
-            else if (freq >= 1000 && freq <= 4000 && duration < 0.1) meaning = "Aerial Predator Alarm";
-            else if (freq >= 800 && duration >= 0.5 && duration <= 0.7) meaning = "Extreme Fear / Acute Aggression";
-            else if (freq >= 500 && duration >= 0.25 && duration <= 1.0) meaning = "Food Anticipation / Excitement";
-            else if (freq >= 500 && duration >= 0.25 && duration <= 0.5) meaning = "Alert / Warning / Pain";
-            else if (freq >= 400 && freq <= 500 && duration >= 0.05 && duration <= 0.1) meaning = "Exploration / Mild Frustration";
-            else if (freq >= 261 && freq <= 476 && duration >= 0.05) meaning = "Contact Seeking / Freezing";
-        } else { 
-            if (duration > 1.0 && duration < 2.0 && freq > 2000) meaning = "Pup Isolation / Attraction";
-            else if (duration > 0.08 && duration < 0.16) meaning = "Predator Alarm / Alert";
-            else if (duration > 0.2 && duration < 0.5) meaning = "Distress / Isolation";
-            else if (duration > 0.02 && duration < 0.08) meaning = "Spatial Monitoring / Group Cohesion";
-        }
+    // Algorithmic Fallback based on specific research parameters
+    if (m_species == GuineaPig) {
+        if (freq >= 261 && freq <= 476 && duration >= 0.05 && duration <= 0.8) meaning = "Purr: Courtship / Contact Seeking / Freezing";
+        else if (freq >= 400 && freq <= 500 && duration >= 0.05 && duration <= 0.2) meaning = "Chutter: Exploration / Mild Frustration";
+        else if (freq >= 500 && freq <= 3500 && duration >= 0.25 && duration <= 1.0) meaning = "Wheek / Whistle: Food Anticipation / Excitement";
+        else if (freq >= 500 && freq <= 1500 && duration >= 0.25 && duration <= 0.5) meaning = "Squeal: Alert / Discomfort / Warning";
+        else if (freq >= 800 && duration >= 0.5 && duration <= 0.7) meaning = "Scream: Extreme Fear / Acute Aggression / Pain";
+        else if (freq >= 4500 && duration < 0.05) meaning = "Chirp: Ambiguity / Low-Level Stress";
+        else if (freq >= 1000 && freq <= 4000 && duration < 0.1) meaning = "Chirrup: Aerial Predator Alarm";
+    } else { 
+        if (freq >= 50 && freq <= 150 && duration < 0.1) meaning = "Click / Purr: Contact / Spatial Monitoring";
+        else if (freq >= 200 && freq <= 600 && duration > 0.08 && duration < 0.16) meaning = "Bark: Predator Alarm / Startle";
+        else if (duration >= 1.0 && duration <= 2.0 && freq >= 1500) meaning = "Whistle: Pup Isolation / Distress";
+        else if (freq >= 500 && duration >= 0.2 && duration <= 0.7) meaning = "Whine: Begging / Appeasement / Distress";
+        else if (freq > 20000) meaning = "USV Squeal: Extreme Panic / Restraint"; // Ultrasonic detection catch
     }
 
     if (!meaning.isEmpty()) {
-        QString entry = QString::asprintf("[%.2fs] %s", timestamp, qPrintable(meaning));
+        QString entry = QString::asprintf("[%.1fs] %s\n> Freq: %.0f Hz | Dur: %.2f s", timestamp, qPrintable(meaning), freq, duration);
         m_translations.prepend(entry);
         emit translationsChanged();
 
@@ -468,7 +467,6 @@ void CaviaAnalyzer::saveSessionToDisk() {
     QFile file(filename);
     if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
-        qDebug() << "Session saved to:" << filename;
     }
 }
 
@@ -477,7 +475,6 @@ void CaviaAnalyzer::clearCurrentSession() {
     currentSessionData = QJsonArray();
     emit translationsChanged();
 }
-
 
 void CaviaAnalyzer::playCall(const QString& callType) {
     if (m_synthSink) {
@@ -528,7 +525,6 @@ void CaviaAnalyzer::playCall(const QString& callType) {
         totalDurationSecs += durationSecs;
     };
 
-    
     if (callType == "Purr") {
         for(int i=0; i<10; ++i) { appendTone(300, 300, 0.05, false, 0.1); appendSilence(0.016); }
     } else if (callType == "Chutter") {
@@ -543,9 +539,7 @@ void CaviaAnalyzer::playCall(const QString& callType) {
         for(int i=0; i<3; ++i) { appendTone(5000, 5000, 0.02, false, 0.0); appendSilence(0.05); }
     } else if (callType == "Chirrup") {
         appendTone(3500, 1000, 0.07, false, 0.0);
-    }
-    
-    else if (callType == "Capy Click") {
+    } else if (callType == "Capy Click") {
         for(int i=0; i<6; ++i) { appendTone(200, 200, 0.01, false, 1.0); appendSilence(0.1); }
     } else if (callType == "Capy Bark") {
         appendTone(300, 8000, 0.13, true, 1.0);
@@ -572,7 +566,9 @@ void CaviaAnalyzer::playCall(const QString& callType) {
     QTimer::singleShot(static_cast<int>(totalDurationSecs * 1000) + 300, this, [this](){ m_isPlaying = false; });
 }
 
-
+// -----------------------------------------------------------------
+// UPGRADED QML FRONTEND
+// -----------------------------------------------------------------
 const char* qmlData = R"QML(
 import QtQuick
 import QtQuick.Controls
@@ -588,50 +584,131 @@ ApplicationWindow {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 12
-        spacing: 12
+        anchors.margins: 16
+        spacing: 16
 
+        // UI Fix: Species Selector styling
         RowLayout {
-            Text { text: "Species:"; color: "white"; font.bold: true }
+            spacing: 12
+            Text { 
+                text: "Select Subject:"
+                color: "#8b949e"
+                font.pixelSize: 16
+                font.bold: true 
+            }
+            
             ComboBox {
+                id: speciesCombo
                 Layout.fillWidth: true
+                height: 44
                 model: ["Guinea Pig", "Capybara"]
                 currentIndex: backend.currentSpecies
                 onCurrentIndexChanged: backend.currentSpecies = currentIndex
                 enabled: !backend.isRecording
+
+                // Fix: Make text white at all times
+                contentItem: Text {
+                    text: speciesCombo.displayText
+                    color: "white"
+                    font.pixelSize: 16
+                    font.bold: true
+                    verticalAlignment: Text.AlignVCenter
+                    horizontalAlignment: Text.AlignHCenter
+                }
+                
+                background: Rectangle {
+                    color: "#21262d"
+                    border.color: speciesCombo.focus ? "#58a6ff" : "#30363d"
+                    border.width: 2
+                    radius: 8
+                }
             }
         }
 
         Button {
             Layout.fillWidth: true
-            height: 60
+            height: 64
             text: backend.isRecording ? "STOP RECORDING" : "START RECORDING"
-            font.bold: true; font.pixelSize: 18
+            font.bold: true; 
+            font.pixelSize: 18
             onClicked: backend.toggleRecording()
-            background: Rectangle { color: backend.isRecording ? "#c42b1c" : "#238636"; radius: 8 }
-            contentItem: Text { text: parent.text; color: "white"; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; font: parent.font }
+            
+            background: Rectangle { 
+                color: backend.isRecording ? "#da3633" : "#238636"
+                radius: 8
+                border.color: backend.isRecording ? "#b62324" : "#2ea043"
+                border.width: 1
+            }
+            
+            contentItem: Text { 
+                text: parent.text
+                color: "white"
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                font: parent.font 
+            }
         }
 
-        Text { text: backend.status; color: "#58a6ff"; font.pixelSize: 14; Layout.alignment: Qt.AlignHCenter }
+        Text { 
+            text: backend.status
+            color: "#58a6ff"
+            font.pixelSize: 14
+            font.italic: true
+            Layout.alignment: Qt.AlignHCenter 
+        }
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: 260
+            Layout.preferredHeight: 220
             color: "black"
             border.color: "#30363d"
-            Spectrogram { id: spectro; anchors.fill: parent; objectName: "spectroItem" }
+            border.width: 2
+            radius: 4
+            clip: true
+            
+            Spectrogram { 
+                id: spectro
+                anchors.fill: parent
+                anchors.margins: 2
+                objectName: "spectroItem" 
+            }
         }
 
         RowLayout {
-            Button { text: "Save Session"; Layout.fillWidth: true; onClicked: backend.saveCurrentSession() }
-            Button { text: "Clear"; Layout.fillWidth: true; onClicked: backend.clearCurrentSession() }
+            spacing: 12
+            Button { 
+                text: "Save Session"
+                Layout.fillWidth: true
+                height: 40
+                onClicked: backend.saveCurrentSession()
+                background: Rectangle { color: "#21262d"; radius: 6; border.color: "#30363d" }
+                contentItem: Text { text: parent.text; color: "#c9d1d9"; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+            }
+            Button { 
+                text: "Clear Data"
+                Layout.fillWidth: true
+                height: 40
+                onClicked: backend.clearCurrentSession() 
+                background: Rectangle { color: "#21262d"; radius: 6; border.color: "#30363d" }
+                contentItem: Text { text: parent.text; color: "#c9d1d9"; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+            }
         }
 
         TabBar {
             id: bar
             Layout.fillWidth: true
-            TabButton { text: "Live Translations" }
-            TabButton { text: "Saved Sessions" }
+            background: Rectangle { color: "transparent" }
+            
+            TabButton { 
+                text: "Live Translater" 
+                contentItem: Text { text: parent.text; color: bar.currentIndex === 0 ? "white" : "#8b949e"; horizontalAlignment: Text.AlignHCenter; font.bold: true }
+                background: Rectangle { color: bar.currentIndex === 0 ? "#21262d" : "transparent"; radius: 4 }
+            }
+            TabButton { 
+                text: "Saved Logs" 
+                contentItem: Text { text: parent.text; color: bar.currentIndex === 1 ? "white" : "#8b949e"; horizontalAlignment: Text.AlignHCenter; font.bold: true }
+                background: Rectangle { color: bar.currentIndex === 1 ? "#21262d" : "transparent"; radius: 4 }
+            }
         }
 
         StackLayout {
@@ -639,18 +716,48 @@ ApplicationWindow {
             Layout.fillWidth: true
             Layout.fillHeight: true
 
-            ListView {
-                clip: true
-                model: backend.translations
-                delegate: Text { text: modelData; color: "#39ff6e"; font.pixelSize: 14; wrapMode: Text.Wrap }
+            Rectangle {
+                color: "#161b22"
+                radius: 8
+                border.color: "#30363d"
+                
+                ListView {
+                    anchors.fill: parent
+                    anchors.margins: 12
+                    clip: true
+                    spacing: 8
+                    model: backend.translations
+                    delegate: Text { 
+                        text: modelData
+                        color: "#3fb950"
+                        font.pixelSize: 15
+                        wrapMode: Text.Wrap 
+                        width: parent.width
+                    }
+                }
             }
 
-            ListView {
-                clip: true
-                model: backend.savedSessions
-                delegate: Text { text: modelData; color: "#8b949e"; font.pixelSize: 14 }
+            Rectangle {
+                color: "#161b22"
+                radius: 8
+                border.color: "#30363d"
+                
+                ListView {
+                    anchors.fill: parent
+                    anchors.margins: 12
+                    clip: true
+                    spacing: 8
+                    model: backend.savedSessions
+                    delegate: Text { 
+                        text: modelData
+                        color: "#8b949e"
+                        font.pixelSize: 14 
+                    }
+                }
             }
         }
+
+        Text { text: "Synthesize Call"; color: "#8b949e"; font.pixelSize: 14; font.bold: true }
 
         Flow {
             Layout.fillWidth: true
@@ -662,8 +769,8 @@ ApplicationWindow {
                 Button {
                     text: modelData
                     onClicked: backend.playCall(modelData)
-                    background: Rectangle { color: "#2f363d"; radius: 6; border.color: "#8b949e" }
-                    contentItem: Text { text: parent.text; color: "white"; padding: 6 }
+                    background: Rectangle { color: "#21262d"; radius: 12; border.color: "#8b949e" }
+                    contentItem: Text { text: parent.text; color: "#58a6ff"; padding: 4 }
                 }
             }
         }
