@@ -6,6 +6,8 @@
 #include <QAudioSource>
 #include <QMediaDevices>
 #include <QAudioDevice>
+#include <QAudioSink>
+#include <QBuffer>
 #include <QTimer>
 #include <QImage>
 #include <QThread>
@@ -17,17 +19,17 @@
 #include <limits>
 #include <algorithm>
 
-const int TARGET_SAMPLE_RATE = 96000;
-const int FALLBACK_SAMPLE_RATE = 48000;
+const int TARGET_SAMPLE_RATE = 48000;
+const int FALLBACK_SAMPLE_RATE = 44100;
 const int MAX_SPECTROGRAM_WIDTH = 1200;
-const int FFT_SIZE = 2048;
+const int FFT_SIZE = 1024; // Halved for superior temporal resolution
 const int HOP_SIZE = FFT_SIZE / 4;
 
 class FFT {
 public:
     static void forward(std::vector<std::complex<double>>& data) {
         int n = data.size();
-        if (n <= 1 || (n & (n-1)) != 0) return; // power of 2 only
+        if (n <= 1 || (n & (n-1)) != 0) return;
 
         bitReverse(data);
         for (int len = 2; len <= n; len <<= 1) {
@@ -135,6 +137,7 @@ public:
 
     void setCurrentSpecies(int idx);
     Q_INVOKABLE void toggleRecording();
+    Q_INVOKABLE void playCall(const QString& callType);
 
 signals:
     void translationsChanged();
@@ -151,6 +154,10 @@ private:
 
     QAudioSource* audioSource = nullptr;
     QIODevice* audioDevice = nullptr;
+    QAudioSink* m_synthSink = nullptr;
+    QBuffer* m_synthBuffer = nullptr;
+    QByteArray m_synthData;
+
     SpectrogramItem* spectrogram = nullptr;
 
     QByteArray audioBuffer;
@@ -171,6 +178,8 @@ CaviaAnalyzer::CaviaAnalyzer(QObject* parent) : QObject(parent) {
 
 CaviaAnalyzer::~CaviaAnalyzer() {
     if (m_isRecording) stopRecording();
+    if (m_synthSink) m_synthSink->deleteLater();
+    if (m_synthBuffer) m_synthBuffer->deleteLater();
 }
 
 void CaviaAnalyzer::setCurrentSpecies(int idx) {
@@ -189,7 +198,6 @@ void CaviaAnalyzer::toggleRecording() {
 void CaviaAnalyzer::startRecording() {
     if (m_isRecording) return;
 
-    // ----- REQUEST RUNTIME MIC PERMISSIONS -----
     QMicrophonePermission micPermission;
     auto permissionStatus = qApp->checkPermission(micPermission);
 
@@ -205,7 +213,6 @@ void CaviaAnalyzer::startRecording() {
         emit statusChanged();
         return;
     }
-
 
     m_translations.clear();
     if (spectrogram) spectrogram->clear();
@@ -248,12 +255,7 @@ void CaviaAnalyzer::startRecording() {
     }
 
     m_isRecording = true;
-
-    if (sampleRate < TARGET_SAMPLE_RATE) {
-        m_status = QString("Recording @ %1 kHz (Warning: USVs >24kHz blocked)").arg(sampleRate / 1000.0);
-    } else {
-        m_status = QString("Recording @ %1 kHz (High-Fidelity USV Enabled)").arg(sampleRate / 1000.0);
-    }
+    m_status = QString("Recording @ %1 kHz").arg(sampleRate / 1000.0);
 
     emit isRecordingChanged();
     emit statusChanged();
@@ -277,6 +279,65 @@ void CaviaAnalyzer::stopRecording() {
         disconnect(audioDevice, nullptr, this, nullptr);
         audioDevice = nullptr;
     }
+}
+
+void CaviaAnalyzer::playCall(const QString& callType) {
+    if (m_synthSink) {
+        m_synthSink->stop();
+        m_synthSink->deleteLater();
+        m_synthBuffer->deleteLater();
+    }
+
+    m_synthData.clear();
+    int sr = TARGET_SAMPLE_RATE;
+
+    auto appendSweep = [&](double startFreq, double endFreq, double durationSecs) {
+        int samples = durationSecs * sr;
+        double phase = 0;
+        for(int i = 0; i < samples; ++i) {
+            double t = (double)i / sr;
+            double currentFreq = startFreq + (endFreq - startFreq) * (t / durationSecs);
+            phase += 2 * M_PI * currentFreq / sr;
+            int16_t sample = 16000 * std::sin(phase); 
+            m_synthData.append(reinterpret_cast<const char*>(&sample), sizeof(int16_t));
+        }
+    };
+
+    auto appendSilence = [&](double durationSecs) {
+        int samples = durationSecs * sr;
+        int16_t zero = 0;
+        for(int i = 0; i < samples; ++i) {
+            m_synthData.append(reinterpret_cast<const char*>(&zero), sizeof(int16_t));
+        }
+    };
+
+    // Tone parameters based strictly on established table boundaries
+    if (callType == "Purr") {
+        for(int i=0; i<10; ++i) { appendSweep(300, 300, 0.05); appendSilence(0.016); }
+    } else if (callType == "Chutter") {
+        for(int i=0; i<3; ++i) { appendSweep(400, 500, 0.075); appendSilence(0.05); }
+    } else if (callType == "Wheek") {
+        appendSweep(500, 3000, 0.5);
+    } else if (callType == "Squeal") {
+        appendSweep(500, 1000, 0.35);
+    } else if (callType == "Scream") {
+        appendSweep(800, 3000, 0.6);
+    } else if (callType == "Chirp") {
+        for(int i=0; i<3; ++i) { appendSweep(5000, 5000, 0.02); appendSilence(0.05); }
+    } else if (callType == "Chirrup") {
+        appendSweep(3500, 1000, 0.07);
+    }
+
+    m_synthBuffer = new QBuffer(&m_synthData, this);
+    m_synthBuffer->open(QIODevice::ReadOnly);
+
+    QAudioFormat format;
+    format.setSampleRate(sr);
+    format.setChannelCount(1);
+    format.setSampleFormat(QAudioFormat::Int16);
+
+    m_synthSink = new QAudioSink(QMediaDevices::defaultAudioOutput(), format, this);
+    m_synthSink->start(m_synthBuffer);
 }
 
 void CaviaAnalyzer::processAudioChunk(const QByteArray& chunk) {
@@ -310,7 +371,7 @@ void CaviaAnalyzer::analyzeFrame(const int16_t* data, int offset, int sr) {
     int peakBin = 0;
     double peakFreq = 0;
     double minFreq = (m_species == Capybara) ? 50.0 : 200.0;
-    double maxFreq = 40000.0;
+    double maxFreq = 24000.0; 
 
     for (int k = 0; k < FFT_SIZE / 2; ++k) {
         double freq = k * static_cast<double>(sr) / FFT_SIZE;
@@ -351,42 +412,53 @@ void CaviaAnalyzer::analyzeFrame(const int16_t* data, int offset, int sr) {
         inCall = false;
         double duration = (callFrames * HOP_SIZE) / static_cast<double>(sr);
         double avgFreq = freqSum / callFrames;
-        if (duration >= 0.025) {
-            classifyCall(avgFreq, duration, callStart);
-        }
+        
+        classifyCall(avgFreq, duration, callStart);
     }
 }
 
 void CaviaAnalyzer::classifyCall(double freq, double duration, double timestamp) {
     QString callType;
+    
+    if (duration < 0.02) return; // Universal transient noise filter
+
     if (m_species == GuineaPig) {
-        if (freq > 22000) callType = "Pup Distress USV";
-        else if (freq >= 3500) callType = "Chirrup / Scream (Alarm/Distress)";
-        else if (freq > 500) callType = "Whistle / Wheek (Food Anticipation)";
-        else if (freq > 400) callType = "Chutter (Exploration)";
-        else if (freq >= 270) callType = "Purr / Durr (Contentment)";
-        else return;
-    } else {
-        if (freq > 25000) {
-            callType = "Ultrasonic Emission (Distress)";
+        // Enforcing spectral boundaries defined by visual and textual literature parameters
+        if (freq >= 4500 && duration < 0.05) {
+            callType = "Chirp (Ambiguity/Stress)";
+        } else if (freq >= 1000 && freq <= 4000 && duration < 0.1) {
+            callType = "Chirrup (Aerial Alarm)";
+        } else if (freq >= 800 && duration >= 0.5 && duration <= 0.7) {
+            callType = "Scream (Extreme Fear/Pain)";
+        } else if (freq >= 500 && duration >= 0.25 && duration <= 1.0) {
+            callType = "Whistle / Wheek (Anticipation)";
+        } else if (freq >= 500 && duration >= 0.25 && duration <= 0.5) {
+            callType = "Squeal (Alert/Warning)";
+        } else if (freq >= 400 && freq <= 500 && duration >= 0.05 && duration <= 0.1) {
+            callType = "Chutter (Exploration)";
+        } else if (freq >= 261 && freq <= 476 && duration >= 0.05) {
+            callType = "Purr / Drrr (Contact/Freezing)";
         } else {
-            struct Centroid { QString name; double freq; double dur; };
-            std::vector<Centroid> centroids = {
-                {"Whistle (Isolation)", 2868, 0.10},
-                {"Bark (Alarm)", 1746, 0.15},
-                {"Cry (Contact)", 1467, 0.33},
-                {"Squeal (Agonistic)", 2037, 0.48},
-                {"Whine (Conflict)", 1944, 1.15}
-            };
-            double bestDist = std::numeric_limits<double>::max();
-            for (const auto& c : centroids) {
-                double d = std::hypot((freq - c.freq), (duration - c.dur) * 1000);
-                if (d < bestDist) {
-                    bestDist = d;
-                    callType = c.name;
-                }
+            return;
+        }
+    } else {
+        struct Centroid { QString name; double freq; double dur; };
+        std::vector<Centroid> centroids = {
+            {"Whistle (Isolation)", 2868, 0.10},
+            {"Bark (Alarm)", 1746, 0.15},
+            {"Cry (Contact)", 1467, 0.33},
+            {"Squeal (Agonistic)", 2037, 0.48},
+            {"Whine (Conflict)", 1944, 1.15}
+        };
+        double bestDist = std::numeric_limits<double>::max();
+        for (const auto& c : centroids) {
+            double d = std::hypot((freq - c.freq), (duration - c.dur) * 1000);
+            if (d < bestDist) {
+                bestDist = d;
+                callType = c.name;
             }
         }
+        if (bestDist > 1500) return;
     }
 
     QString entry = QString::asprintf("[%.2fs] %s | %.0f Hz | %.2fs", timestamp, qPrintable(callType), freq, duration);
@@ -422,14 +494,7 @@ ApplicationWindow {
                 currentIndex: backend.currentSpecies
                 onCurrentIndexChanged: backend.currentSpecies = currentIndex
                 enabled: !backend.isRecording
-
-                contentItem: Text {
-                        text: parent.displayText
-                        color: "white"
-                        font: parent.font
-                        verticalAlignment: Text.AlignVCenter
-                        leftPadding: 12
-                }    
+                contentItem: Text { text: parent.displayText; color: "white"; font: parent.font; verticalAlignment: Text.AlignVCenter; leftPadding: 12 }    
             }
         }
 
@@ -437,73 +502,51 @@ ApplicationWindow {
             Layout.fillWidth: true
             height: 56
             text: backend.isRecording ? "STOP RECORDING" : "START RECORDING"
-            font.bold: true
-            font.pixelSize: 16
+            font.bold: true; font.pixelSize: 16
             onClicked: backend.toggleRecording()
-
-            background: Rectangle {
-                color: backend.isRecording ? "#c42b1c" : "#238636"
-                radius: 6
-            }
-            contentItem: Text {
-                text: parent.text
-                color: "white"
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-                font: parent.font
-            }
+            background: Rectangle { color: backend.isRecording ? "#c42b1c" : "#238636"; radius: 6 }
+            contentItem: Text { text: parent.text; color: "white"; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; font: parent.font }
         }
 
-        Text {
-            text: backend.status
-            color: "#58a6ff"
-            font.pixelSize: 13
-            Layout.alignment: Qt.AlignHCenter
-        }
+        Text { text: backend.status; color: "#58a6ff"; font.pixelSize: 13; Layout.alignment: Qt.AlignHCenter }
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: 300
-            color: "black"
-            border.color: "#30363d"
-
-            Spectrogram {
-                id: spectro
-                anchors.fill: parent
-                objectName: "spectroItem"
-            }
+            Layout.preferredHeight: 250
+            color: "black"; border.color: "#30363d"
+            Spectrogram { id: spectro; anchors.fill: parent; objectName: "spectroItem" }
         }
 
-        Text {
-            text: "Detected Live Calls"
-            color: "white"
-            font.bold: true
-            font.pixelSize: 15
-
-            visible: backend.translations.length > 0
-        }
+        Text { text: "Live Classification"; color: "white"; font.bold: true; font.pixelSize: 15; visible: backend.translations.length > 0 }
 
         ListView {
             Layout.fillWidth: true
             Layout.fillHeight: true
             model: backend.translations
-            clip: true
-            spacing: 4
-            delegate: Text {
-                text: modelData
-                color: "#39ff6e"
-                font.pixelSize: 14
-                wrapMode: Text.Wrap
-            }
+            clip: true; spacing: 4
+            delegate: Text { text: modelData; color: "#39ff6e"; font.pixelSize: 14; wrapMode: Text.Wrap }
         }
-        
 
-        Text {
-            text: "<a href='https://raw.githubusercontent.com/ewanp2025/CaviaBioacoustics/main/PRIVACY.md'>Privacy Policy</a>"
-            color: "#58a6ff"
-            font.pixelSize: 13
-            Layout.alignment: Qt.AlignHCenter
-            onLinkActivated: (link) => Qt.openUrlExternally(link)
+        // Added Audio Synthesizer Interface
+        Rectangle {
+            Layout.fillWidth: true; Layout.preferredHeight: 1; color: "#30363d" 
+        }
+
+        Text { text: "Vocal Synthesizer (Talk Back)"; color: "white"; font.bold: true; font.pixelSize: 15 }
+        
+        Flow {
+            Layout.fillWidth: true
+            spacing: 8
+            
+            Repeater {
+                model: ["Purr", "Chutter", "Wheek", "Squeal", "Scream", "Chirp", "Chirrup"]
+                Button {
+                    text: modelData
+                    onClicked: backend.playCall(modelData)
+                    background: Rectangle { color: "#2f363d"; radius: 6; border.color: "#8b949e"; border.width: 1 }
+                    contentItem: Text { text: parent.text; color: "white"; padding: 6 }
+                }
+            }
         }
     }
 }
