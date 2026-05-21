@@ -33,7 +33,8 @@ jobs:
 
       - name: Remove Incompatible Android SDKs
         run: |
-          echo "Removing SDK 36 to force fallback to SDK 35..."
+          echo "Removing SDK 35 and 36 to force fallback to SDK 34..."
+          rm -rf $ANDROID_HOME/platforms/android-35*
           rm -rf $ANDROID_HOME/platforms/android-36*
 
       - name: Build Debug APK
@@ -46,7 +47,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Debug \
             -DQT_HOST_PATH="$QT_HOST_PATH" \
             -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" \
-            -DANDROID_PLATFORM=android-35 \
+            -DANDROID_PLATFORM=android-34 \
             -DQT_ANDROID_ABIS="arm64-v8a;armeabi-v7a" \
             -DQT_ANDROID_BUILD_ALL_ABIS=ON
 
@@ -62,7 +63,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DQT_HOST_PATH="$QT_HOST_PATH" \
             -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" \
-            -DANDROID_PLATFORM=android-35 \
+            -DANDROID_PLATFORM=android-34 \
             -DQT_ANDROID_ABIS="arm64-v8a;armeabi-v7a" \
             -DQT_ANDROID_BUILD_ALL_ABIS=ON
 
