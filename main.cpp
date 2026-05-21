@@ -18,11 +18,12 @@
 #include <cmath>
 #include <limits>
 #include <algorithm>
+#include <random>
 
 const int TARGET_SAMPLE_RATE = 48000;
 const int FALLBACK_SAMPLE_RATE = 44100;
 const int MAX_SPECTROGRAM_WIDTH = 1200;
-const int FFT_SIZE = 1024; // Halved for superior temporal resolution
+const int FFT_SIZE = 1024; 
 const int HOP_SIZE = FFT_SIZE / 4;
 
 class FFT {
@@ -164,16 +165,13 @@ private:
     QStringList m_translations;
     QString m_status = "Ready";
     bool m_isRecording = false;
+    bool m_isPlaying = false; // Flag to prevent self-detection
     Species m_species = GuineaPig;
     int sampleRate = TARGET_SAMPLE_RATE;
-
-    QTimer* stopTimer = nullptr;
 };
 
 CaviaAnalyzer::CaviaAnalyzer(QObject* parent) : QObject(parent) {
-    stopTimer = new QTimer(this);
-    stopTimer->setSingleShot(true);
-    connect(stopTimer, &QTimer::timeout, this, &CaviaAnalyzer::stopRecording);
+    // Removed the stopTimer entirely for continuous recording
 }
 
 CaviaAnalyzer::~CaviaAnalyzer() {
@@ -263,8 +261,6 @@ void CaviaAnalyzer::startRecording() {
     connect(audioDevice, &QIODevice::readyRead, this, [this]() {
         processAudioChunk(audioDevice->readAll());
     });
-
-    stopTimer->start(15000);
 }
 
 void CaviaAnalyzer::stopRecording() {
@@ -290,17 +286,39 @@ void CaviaAnalyzer::playCall(const QString& callType) {
 
     m_synthData.clear();
     int sr = TARGET_SAMPLE_RATE;
+    double totalDurationSecs = 0;
 
-    auto appendSweep = [&](double startFreq, double endFreq, double durationSecs) {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<> dis(-1.0, 1.0);
+
+    // Advanced Synthesizer: Adds harmonics and noise for realism
+    auto appendTone = [&](double startFreq, double endFreq, double durationSecs, bool hasHarmonics, double noiseLevel) {
         int samples = durationSecs * sr;
         double phase = 0;
         for(int i = 0; i < samples; ++i) {
             double t = (double)i / sr;
             double currentFreq = startFreq + (endFreq - startFreq) * (t / durationSecs);
             phase += 2 * M_PI * currentFreq / sr;
-            int16_t sample = 16000 * std::sin(phase); 
+            
+            double wave = std::sin(phase);
+            if (hasHarmonics) {
+                wave += 0.5 * std::sin(2 * phase); // 2nd harmonic
+                wave += 0.25 * std::sin(3 * phase); // 3rd harmonic
+            }
+            if (noiseLevel > 0) {
+                wave += noiseLevel * dis(gen); // Add chaotic noise
+            }
+            
+            // Envelope: Fade in/out to prevent popping
+            double envelope = 1.0;
+            if (i < 200) envelope = i / 200.0;
+            if (i > samples - 200) envelope = (samples - i) / 200.0;
+
+            int16_t sample = 8000 * wave * envelope; // Halved amplitude to prevent clipping with harmonics
             m_synthData.append(reinterpret_cast<const char*>(&sample), sizeof(int16_t));
         }
+        totalDurationSecs += durationSecs;
     };
 
     auto appendSilence = [&](double durationSecs) {
@@ -309,23 +327,36 @@ void CaviaAnalyzer::playCall(const QString& callType) {
         for(int i = 0; i < samples; ++i) {
             m_synthData.append(reinterpret_cast<const char*>(&zero), sizeof(int16_t));
         }
+        totalDurationSecs += durationSecs;
     };
 
-    // Tone parameters based strictly on established table boundaries
+    // Construct the calls with appropriate harmonic profiles
     if (callType == "Purr") {
-        for(int i=0; i<10; ++i) { appendSweep(300, 300, 0.05); appendSilence(0.016); }
+        for(int i=0; i<10; ++i) { appendTone(300, 300, 0.05, false, 0.1); appendSilence(0.016); }
     } else if (callType == "Chutter") {
-        for(int i=0; i<3; ++i) { appendSweep(400, 500, 0.075); appendSilence(0.05); }
+        for(int i=0; i<4; ++i) { appendTone(450, 480, 0.075, true, 0.2); appendSilence(0.05); }
     } else if (callType == "Wheek") {
-        appendSweep(500, 3000, 0.5);
+        appendTone(500, 3000, 0.5, true, 0.0); // Rich harmonics
     } else if (callType == "Squeal") {
-        appendSweep(500, 1000, 0.35);
+        appendTone(500, 1000, 0.4, true, 0.3); // Harmonics + minor noise
     } else if (callType == "Scream") {
-        appendSweep(800, 3000, 0.6);
+        appendTone(800, 3000, 0.6, true, 0.8); // High noise for chaos
     } else if (callType == "Chirp") {
-        for(int i=0; i<3; ++i) { appendSweep(5000, 5000, 0.02); appendSilence(0.05); }
+        for(int i=0; i<3; ++i) { appendTone(5000, 5000, 0.02, false, 0.0); appendSilence(0.05); }
     } else if (callType == "Chirrup") {
-        appendSweep(3500, 1000, 0.07);
+        appendTone(3500, 1000, 0.07, false, 0.0);
+    } 
+    // CAPYBARA CALLS
+    else if (callType == "Capy Click") {
+        for(int i=0; i<6; ++i) { appendTone(200, 200, 0.01, false, 1.0); appendSilence(0.1); } // Broadband pulse
+    } else if (callType == "Capy Bark") {
+        appendTone(300, 8000, 0.13, true, 1.0); // Explosive sharp noise
+    } else if (callType == "Capy Whistle") {
+        appendTone(2800, 2800, 1.5, true, 0.0); // Pure 1.5s tone
+    } else if (callType == "Capy Whine") {
+        appendTone(1900, 1500, 1.15, true, 0.3); 
+    } else if (callType == "Tooth-Chatter") {
+        for(int i=0; i<15; ++i) { appendTone(100, 100, 0.02, false, 2.0); appendSilence(0.03); } // Pure mechanical clacks
     }
 
     m_synthBuffer = new QBuffer(&m_synthData, this);
@@ -338,6 +369,10 @@ void CaviaAnalyzer::playCall(const QString& callType) {
 
     m_synthSink = new QAudioSink(QMediaDevices::defaultAudioOutput(), format, this);
     m_synthSink->start(m_synthBuffer);
+
+    // Mute the analyzer while playing to prevent self-detection
+    m_isPlaying = true;
+    QTimer::singleShot((totalDurationSecs * 1000) + 200, this, [this](){ m_isPlaying = false; });
 }
 
 void CaviaAnalyzer::processAudioChunk(const QByteArray& chunk) {
@@ -358,6 +393,8 @@ void CaviaAnalyzer::processAudioChunk(const QByteArray& chunk) {
 }
 
 void CaviaAnalyzer::analyzeFrame(const int16_t* data, int offset, int sr) {
+    if (m_isPlaying) return; // Ignore input while speaking to prevent feedback loops
+
     std::vector<std::complex<double>> frame(FFT_SIZE);
     for (int i = 0; i < FFT_SIZE; ++i) {
         double window = 0.5 * (1 - std::cos(2 * M_PI * i / (FFT_SIZE - 1)));
@@ -368,6 +405,7 @@ void CaviaAnalyzer::analyzeFrame(const int16_t* data, int offset, int sr) {
 
     std::vector<double> mags(FFT_SIZE / 2);
     double maxMag = 1e-8;
+    double sumMag = 0;
     int peakBin = 0;
     double peakFreq = 0;
     double minFreq = (m_species == Capybara) ? 50.0 : 200.0;
@@ -381,12 +419,15 @@ void CaviaAnalyzer::analyzeFrame(const int16_t* data, int offset, int sr) {
         }
         double mag = std::abs(frame[k]);
         mags[k] = mag;
+        sumMag += mag;
         if (mag > maxMag) {
             maxMag = mag;
             peakBin = k;
             peakFreq = freq;
         }
     }
+
+    double avgMag = sumMag / (FFT_SIZE / 2);
 
     for (double& m : mags) m = std::min(1.0, m / (maxMag * 1.5));
     if (spectrogram) spectrogram->addColumn(mags);
@@ -397,7 +438,9 @@ void CaviaAnalyzer::analyzeFrame(const int16_t* data, int offset, int sr) {
     static int callFrames = 0;
 
     double currentTime = offset / static_cast<double>(sr);
-    bool strongSignal = maxMag > 25000;
+    
+    // NOISE GATE: Volume must be high, AND it must be 6x louder than background noise
+    bool strongSignal = (maxMag > 15000) && (maxMag > avgMag * 6.0);
 
     if (strongSignal) {
         if (!inCall) {
@@ -418,50 +461,46 @@ void CaviaAnalyzer::analyzeFrame(const int16_t* data, int offset, int sr) {
 }
 
 void CaviaAnalyzer::classifyCall(double freq, double duration, double timestamp) {
-    QString callType;
+    QString meaning;
     
-    if (duration < 0.02) return; // Universal transient noise filter
+    // Ignore micro-transients
+    if (duration < 0.02) return; 
 
     if (m_species == GuineaPig) {
-        // Enforcing spectral boundaries defined by visual and textual literature parameters
+        // Output semantics rather than names
         if (freq >= 4500 && duration < 0.05) {
-            callType = "Chirp (Ambiguity/Stress)";
+            meaning = "Ambiguity / Low-Level Stress";
         } else if (freq >= 1000 && freq <= 4000 && duration < 0.1) {
-            callType = "Chirrup (Aerial Alarm)";
+            meaning = "Aerial Predator Alarm";
         } else if (freq >= 800 && duration >= 0.5 && duration <= 0.7) {
-            callType = "Scream (Extreme Fear/Pain)";
+            meaning = "Extreme Fear / Acute Aggression";
         } else if (freq >= 500 && duration >= 0.25 && duration <= 1.0) {
-            callType = "Whistle / Wheek (Anticipation)";
+            meaning = "Food Anticipation / Excitement";
         } else if (freq >= 500 && duration >= 0.25 && duration <= 0.5) {
-            callType = "Squeal (Alert/Warning)";
+            meaning = "Alert / Warning / Pain";
         } else if (freq >= 400 && freq <= 500 && duration >= 0.05 && duration <= 0.1) {
-            callType = "Chutter (Exploration)";
+            meaning = "Exploration / Mild Frustration";
         } else if (freq >= 261 && freq <= 476 && duration >= 0.05) {
-            callType = "Purr / Drrr (Contact/Freezing)";
+            meaning = "Contact Seeking / Freezing";
         } else {
             return;
         }
     } else {
-        struct Centroid { QString name; double freq; double dur; };
-        std::vector<Centroid> centroids = {
-            {"Whistle (Isolation)", 2868, 0.10},
-            {"Bark (Alarm)", 1746, 0.15},
-            {"Cry (Contact)", 1467, 0.33},
-            {"Squeal (Agonistic)", 2037, 0.48},
-            {"Whine (Conflict)", 1944, 1.15}
-        };
-        double bestDist = std::numeric_limits<double>::max();
-        for (const auto& c : centroids) {
-            double d = std::hypot((freq - c.freq), (duration - c.dur) * 1000);
-            if (d < bestDist) {
-                bestDist = d;
-                callType = c.name;
-            }
+        // Precise duration filtering for Capybaras
+        if (duration > 1.0 && duration < 2.0 && freq > 2000) {
+            meaning = "Pup Isolation / Attraction"; // Whistle
+        } else if (duration > 0.08 && duration < 0.16) {
+            meaning = "Predator Alarm / Alert"; // Bark
+        } else if (duration > 0.2 && duration < 0.5) {
+            meaning = "Distress / Isolation"; // Cry/Squeal
+        } else if (duration > 0.02 && duration < 0.08) {
+            meaning = "Spatial Monitoring / Group Cohesion"; // Click
+        } else {
+            return; // Failed to match capybara profile
         }
-        if (bestDist > 1500) return;
     }
 
-    QString entry = QString::asprintf("[%.2fs] %s | %.0f Hz | %.2fs", timestamp, qPrintable(callType), freq, duration);
+    QString entry = QString::asprintf("[%.2fs] %s", timestamp, qPrintable(meaning));
     if (m_translations.isEmpty() || !m_translations.last().contains(QString::asprintf("[%.2fs]", timestamp))) {
         m_translations.prepend(entry);
         emit translationsChanged();
@@ -517,7 +556,7 @@ ApplicationWindow {
             Spectrogram { id: spectro; anchors.fill: parent; objectName: "spectroItem" }
         }
 
-        Text { text: "Live Classification"; color: "white"; font.bold: true; font.pixelSize: 15; visible: backend.translations.length > 0 }
+        Text { text: "Semantic Translations"; color: "white"; font.bold: true; font.pixelSize: 15; visible: backend.translations.length > 0 }
 
         ListView {
             Layout.fillWidth: true
@@ -527,7 +566,6 @@ ApplicationWindow {
             delegate: Text { text: modelData; color: "#39ff6e"; font.pixelSize: 14; wrapMode: Text.Wrap }
         }
 
-        // Added Audio Synthesizer Interface
         Rectangle {
             Layout.fillWidth: true; Layout.preferredHeight: 1; color: "#30363d" 
         }
@@ -538,8 +576,9 @@ ApplicationWindow {
             Layout.fillWidth: true
             spacing: 8
             
+            // Dynamically change buttons based on selected species
             Repeater {
-                model: ["Purr", "Chutter", "Wheek", "Squeal", "Scream", "Chirp", "Chirrup"]
+                model: backend.currentSpecies === 0 ? ["Purr", "Chutter", "Wheek", "Squeal", "Scream", "Chirp", "Chirrup"] : ["Capy Click", "Capy Whistle", "Capy Bark", "Capy Whine", "Tooth-Chatter"]
                 Button {
                     text: modelData
                     onClicked: backend.playCall(modelData)
