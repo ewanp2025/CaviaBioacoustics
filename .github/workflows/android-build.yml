@@ -53,50 +53,44 @@ jobs:
 
           cmake --build . --target apk --config Debug
 
-          - name: Build Release APK and AAB
-                  run: |
-                    mkdir -p build_release && cd build_release
-                    QT_ANDROID_CMAKE="${QT_ROOT_DIR}/bin/qt-cmake"
-                    
-                    "$QT_ANDROID_CMAKE" .. \
-                      -G Ninja \
-                      -DCMAKE_BUILD_TYPE=Release \
-                      -DQT_HOST_PATH="$QT_HOST_PATH" \
-                      -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" \
-                      -DANDROID_PLATFORM=android-34 \
-                      -DQT_ANDROID_ABIS="arm64-v8a;armeabi-v7a" \
-                      -DQT_ANDROID_BUILD_ALL_ABIS=ON
+      - name: Build Release APK and AAB
+        run: |
+          mkdir -p build_release && cd build_release
+          QT_ANDROID_CMAKE="${QT_ROOT_DIR}/bin/qt-cmake"
           
-                    # Build and isolate the APK
-                    cmake --build . --target apk --config Release
-                    mkdir -p apk_out && mv android-build/*.apk apk_out/
-          
-                    # Build and isolate the AAB
-                    cmake --build . --target aab --config Release
-                    mkdir -p aab_out && mv android-build/*.aab aab_out/
-          
-                - name: Sign Release APK
-                  uses: r0adkll/sign-android-release@v1
-                  with:
-                    releaseDirectory: build_release/apk_out/
-                    signingKeyBase64: ${{ secrets.KEYSTORE_BASE64 }}
-                    alias: ${{ secrets.KEY_ALIAS }}
-                    keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
-                    keyPassword: ${{ secrets.KEY_PASSWORD }}
-          
-                - name: Sign Release AAB
-                  uses: r0adkll/sign-android-release@v1
-                  with:
-                    releaseDirectory: build_release/aab_out/
-                    signingKeyBase64: ${{ secrets.KEYSTORE_BASE64 }}
-                    alias: ${{ secrets.KEY_ALIAS }}
-                    keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
-                    keyPassword: ${{ secrets.KEY_PASSWORD }}
-          
-                - name: Upload Signed Release Artifacts
-                  uses: actions/upload-artifact@v4
-                  with:
-                    name: CaviaBioacoustics-Signed-Release-Builds
-                    path: |
-                      build_release/apk_out/*.apk
-                      build_release/aab_out/*.aab
+          "$QT_ANDROID_CMAKE" .. \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQT_HOST_PATH="$QT_HOST_PATH" \
+            -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" \
+            -DANDROID_PLATFORM=android-34 \
+            -DQT_ANDROID_ABIS="arm64-v8a;armeabi-v7a" \
+            -DQT_ANDROID_BUILD_ALL_ABIS=ON
+
+          cmake --build . --target aab --config Release
+
+      - name: Sign Release APK and AAB
+        uses: r0adkll/sign-android-release@v1
+        id: sign_app
+        with:
+          releaseDirectory: build_release/android-build/
+          signingKeyBase64: ${{ secrets.KEYSTORE_BASE64 }}
+          alias: ${{ secrets.KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
+        env:
+          BUILD_TOOLS_VERSION: "34.0.0"
+
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CaviaBioacoustics-Debug-APK
+          path: build_debug/**/*.apk
+
+      - name: Upload Signed Release Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: CaviaBioacoustics-Signed-Release-Builds
+          path: |
+            build_release/**/*-signed.apk
+            build_release/**/*.aab
