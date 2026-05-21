@@ -31,6 +31,11 @@ jobs:
           cache: true
           dir: '${{ github.workspace }}/Qt'    
 
+      - name: Remove Incompatible Android SDKs
+        run: |
+          echo "Removing SDK 36 to force fallback to SDK 35..."
+          rm -rf $ANDROID_HOME/platforms/android-36*
+
       - name: Build Debug APK
         run: |
           mkdir -p build_debug && cd build_debug
@@ -41,7 +46,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Debug \
             -DQT_HOST_PATH="$QT_HOST_PATH" \
             -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" \
-            -DANDROID_PLATFORM=android-35 \
+            -DANDROID_PLATFORM=android-34 \
             -DQT_ANDROID_ABIS="arm64-v8a;armeabi-v7a" \
             -DQT_ANDROID_BUILD_ALL_ABIS=ON
 
@@ -57,7 +62,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DQT_HOST_PATH="$QT_HOST_PATH" \
             -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" \
-            -DANDROID_PLATFORM=android-35 \
+            -DANDROID_PLATFORM=android-34 \
             -DQT_ANDROID_ABIS="arm64-v8a;armeabi-v7a" \
             -DQT_ANDROID_BUILD_ALL_ABIS=ON
 
@@ -72,6 +77,8 @@ jobs:
           alias: ${{ secrets.KEY_ALIAS }}
           keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
           keyPassword: ${{ secrets.KEY_PASSWORD }}
+        env:
+          BUILD_TOOLS_VERSION: "34.0.0"
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
