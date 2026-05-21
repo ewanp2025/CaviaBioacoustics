@@ -26,3 +26,15 @@ if(ANDROID)
         QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android"
     )
 endif()
+
+if(IOS)
+    set_target_properties(appCaviaBioacoustics PROPERTIES
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_GUI_IDENTIFIER "com.caviabioacoustics.app"
+        MACOSX_BUNDLE_BUNDLE_NAME "Cavia Bioacoustics"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2" 
+        XCODE_ATTRIBUTE_INFOPLIST_KEY_NSMicrophoneUsageDescription "Required to listen to and translate live guinea pig and capybara vocalizations."
+    )
+endif()
