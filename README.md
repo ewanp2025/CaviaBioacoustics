@@ -2,7 +2,7 @@
 
 Work In Progress
 
-Please note that I have paid for an Android developer account, but having now learned the hurdles one must jump through to place an app in the play store, I have given up and placed my APK here instead (which means this APK must be sideloaded instead).
+Please note that I have paid for an Android developer account, but having now learned the hurdles one must jump through to place an app in the Play Store, I have given up and placed my APK here instead (which means this APK must be sideloaded instead). Additionally, I don't own any Apple devices so I cannot compile and upload this to the Apple Store.
 
 A realtime audio analysis mobile app for classifying and translating the vocalisations of domestic Guinea Pigs (*Cavia porcellus*) and Capybaras (*Hydrochoerus hydrochaeris*).
 
