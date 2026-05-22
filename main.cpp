@@ -240,7 +240,7 @@ private:
     void stopRecording();
     void processAudioChunk(const QByteArray& chunk);
     void analyzeFrame(const int16_t* data, int offset, int sr);
-    double computeAutocorrelationPulseRate(const std::vector<double>& waveformSamples, int sr);
+    double computeAutocorrelationPulseRate(const std::vector<double>& envelope, int sr, int hopSize);
     void classifyCall(double freq, double duration, double timestamp, double maxMag, double pulseRate);
     void writeWavFile(const QString& filename);
 
@@ -272,7 +272,7 @@ private:
     int sampleRate = PREFERRED_SAMPLE_RATES.last();
     std::vector<double> noiseFloorProfile;
     QJsonArray currentSessionData;
-    std::vector<double> recentSamples;
+    std::vector<double> callEnvelope;
 };
 
 CaviaAnalyzer::CaviaAnalyzer(QObject* parent) : QObject(parent) {
@@ -417,14 +417,10 @@ void CaviaAnalyzer::processAudioChunk(const QByteArray& chunk) {
     }
 }
 
-double CaviaAnalyzer::computeAutocorrelationPulseRate(const std::vector<double>& waveformSamples, int sr) {
-    if (waveformSamples.size() < 100) return 0.0;
+double CaviaAnalyzer::computeAutocorrelationPulseRate(const std::vector<double>& envelope, int sr, int hopSize) {
+    if (envelope.size() < 10) return 0.0; // Too short to have a rhythm
 
-    std::vector<double> envelope(waveformSamples.size());
-    for (size_t i = 0; i < waveformSamples.size(); ++i) {
-        envelope[i] = std::abs(waveformSamples[i]);
-    }
-    
+    // The array is already a volume envelope, so we can calculate instantly
     std::vector<double> autocorr(envelope.size() / 2, 0.0);
     for (size_t lag = 1; lag < envelope.size() / 2; ++lag) {
         for (size_t i = 0; i < envelope.size() - lag; ++i) {
@@ -434,7 +430,14 @@ double CaviaAnalyzer::computeAutocorrelationPulseRate(const std::vector<double>&
 
     double maxVal = 0;
     int bestLag = 0;
-    for (size_t lag = sr / 100; lag < autocorr.size(); ++lag) { 
+    double frameRate = static_cast<double>(sr) / hopSize; // e.g., 375 frames per sec
+    
+    // Skip very short lags to avoid false positives. 
+    // We are looking for 10Hz - 40Hz rhythms.
+    size_t minLag = static_cast<size_t>(frameRate / 40.0);
+    if (minLag < 1) minLag = 1;
+
+    for (size_t lag = minLag; lag < autocorr.size(); ++lag) { 
         if (autocorr[lag] > maxVal) {
             maxVal = autocorr[lag];
             bestLag = lag;
@@ -442,7 +445,7 @@ double CaviaAnalyzer::computeAutocorrelationPulseRate(const std::vector<double>&
     }
 
     if (bestLag == 0) return 0.0;
-    return static_cast<double>(sr) / bestLag;
+    return frameRate / bestLag; // Returns physical pulses per second (Hz)
 }
 
 void CaviaAnalyzer::analyzeFrame(const int16_t* data, int offset, int sr) {
@@ -511,21 +514,21 @@ void CaviaAnalyzer::analyzeFrame(const int16_t* data, int offset, int sr) {
             callStart = currentTime;
             freqSum = 0;
             callFrames = 0;
-            recentSamples.clear(); 
+            callEnvelope.clear(); // Clear old data
         }
         freqSum += peakFreq;
         callFrames++;
         
-        for(int i = 0; i < FFT_SIZE; i++) {
-            recentSamples.push_back(data[offset + i] / 32768.0);
-        }
+        // FIX: Just save the peak volume of this frame, NOT 1024 raw audio samples!
+        callEnvelope.push_back(maxMag); 
         
     } else if (inCall) {
         inCall = false;
         double duration = (callFrames * HOP_SIZE) / static_cast<double>(sr);
         double avgFreq = freqSum / callFrames;
         
-        double pulseRate = computeAutocorrelationPulseRate(recentSamples, sr);
+        // Calculate rhythm using our new lightning-fast volume envelope
+        double pulseRate = computeAutocorrelationPulseRate(callEnvelope, sr, HOP_SIZE);
         classifyCall(avgFreq, duration, callStart, maxMag, pulseRate);
     }
 }
