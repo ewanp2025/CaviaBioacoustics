@@ -783,34 +783,35 @@ ApplicationWindow {
         Text { text: backend.status; color: "#58a6ff"; font.pixelSize: 13; font.italic: true; Layout.alignment: Qt.AlignHCenter }
 
         ColumnLayout {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 220
-            spacing: 6
-
-            // Top Box: The Live Waveform
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                color: "black"
-                border.color: "#30363d"
-                border.width: 2
-                radius: 4
-                clip: true
-                Waveform { id: wf; anchors.fill: parent; anchors.margins: 2; objectName: "waveformItem" }
-            }
-
-            // Bottom Box: The Spectrogram
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                color: "black"
-                border.color: "#30363d"
-                border.width: 2
-                radius: 4
-                clip: true
-                Spectrogram { id: spectro; anchors.fill: parent; anchors.margins: 2; objectName: "spectroItem" }
-            }
-        }
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 240
+                    Layout.maximumHeight: 240 // <-- THE FIX: Stops the visualizers from bulldozing the screen
+                    spacing: 6
+        
+                    // Top Box: The Live Waveform
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        color: "black"
+                        border.color: "#30363d"
+                        border.width: 2
+                        radius: 4
+                        clip: true
+                        Waveform { id: wf; anchors.fill: parent; anchors.margins: 2; objectName: "waveformItem" }
+                    }
+        
+                    // Bottom Box: The Spectrogram
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        color: "black"
+                        border.color: "#30363d"
+                        border.width: 2
+                        radius: 4
+                        clip: true
+                        Spectrogram { id: spectro; anchors.fill: parent; anchors.margins: 2; objectName: "spectroItem" }
+                    }
+                }
 
         RowLayout {
             spacing: 12
