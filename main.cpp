@@ -26,7 +26,6 @@
 #include <algorithm>
 #include <random>
 
-// Config Constants
 const QList<int> PREFERRED_SAMPLE_RATES = {192000, 96000, 48000, 44100};
 const int MAX_SPECTROGRAM_WIDTH = 1200;
 const int FFT_SIZE = 1024; 
@@ -47,7 +46,6 @@ private:
     bool m_modelLoaded = false;
 };
 
-// LIVE WAVEFORM VISUALIZER
 class WaveformItem : public QQuickPaintedItem {
     Q_OBJECT
 public:
@@ -181,7 +179,6 @@ private:
     }
 };
 
-// MASTER ANALYZER ENGINE
 class CaviaAnalyzer : public QObject {
     Q_OBJECT
     Q_PROPERTY(QStringList translations READ translations NOTIFY translationsChanged)
@@ -519,7 +516,6 @@ void CaviaAnalyzer::analyzeFrame(const int16_t* data, int offset, int sr) {
         freqSum += peakFreq;
         callFrames++;
         
-        // FIX: Just save the peak volume of this frame, NOT 1024 raw audio samples!
         callEnvelope.push_back(maxMag); 
         
     } else if (inCall) {
@@ -723,9 +719,6 @@ void CaviaAnalyzer::playCall(const QString& callType) {
     QTimer::singleShot(static_cast<int>(totalDurationSecs * 1000) + 300, this, [this](){ m_isPlaying = false; });
 }
 
-// -----------------------------------------------------------------
-// UPGRADED QML FRONTEND (3 Tabs + Margins + Settings + Waveform)
-// -----------------------------------------------------------------
 const char* qmlData = R"QML(
 import QtQuick
 import QtQuick.Controls
