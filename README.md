@@ -9,7 +9,7 @@ A realtime audio analysis mobile app for classifying and translating the vocalis
 ## Features
 * **Live Translation:** Automatically detects and classifies audible calls (wheeks, chhutters, barks).
 * **Real-Time Spectrogram:** Visualises audio frequencies directly on your screen using custom FFT processing.
-* **100% Private & Offline:** All audio analysis is performed locally on your device. No recordings or data are ever saved or transmitted to the cloud.
+* **100% Private & Offline:** All audio analysis is performed locally on your device. No recordings or data are ever transmitted to the cloud.
 
 ## Hardware Limitations
 * **The Nyquist Limit & Ultrasonic Calls:** Most standard smartphone microphones are physically limited to a capture sample rate of 44.1 kHz or 48 kHz. According to the Nyquist-Shannon sampling theorem, this means the absolute maximum frequency the app can detect is half of that rate (**~22 kHz to 24 kHz**). 
