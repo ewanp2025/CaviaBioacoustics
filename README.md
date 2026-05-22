@@ -8,6 +8,7 @@ A realtime audio analysis mobile app for classifying and translating the vocalis
 
 ## Features
 * **Live Translation:** Automatically detects and classifies audible calls (wheeks, chhutters, barks).
+* **Connunicate Back:** Press buttons to play synthesised (not sampled) sounds to communicate back to your guinea pig.
 * **Real-Time Spectrogram:** Visualises audio frequencies directly on your screen using custom FFT processing.
 * **100% Private & Offline:** All audio analysis is performed locally on your device. No recordings or data are ever transmitted to the cloud.
 
