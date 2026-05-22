@@ -26,23 +26,19 @@
 #include <algorithm>
 #include <random>
 
-// Attempt high-frequency ultrasonic capture first for USB mics, fallback to standard
+// Config Constants
 const QList<int> PREFERRED_SAMPLE_RATES = {192000, 96000, 48000, 44100};
 const int MAX_SPECTROGRAM_WIDTH = 1200;
 const int FFT_SIZE = 1024; 
 const int HOP_SIZE = FFT_SIZE / 8; 
+const int WAVEFORM_SAMPLES = 512;
 
-// Biomimetic ML Classifier (Simulating Inferior Colliculus temporal processing)
+// Biomimetic ML Classifier 
 class MLClassifier : public QObject {
     Q_OBJECT
 public:
     explicit MLClassifier(QObject* parent = nullptr) : QObject(parent) {}
-
-    Q_INVOKABLE void loadModel(const QString& modelPath) {
-        m_modelLoaded = true;
-    }
-
-    // Now accepts temporal pulse rates to mimic how the MGB and AI process rhythms
+    Q_INVOKABLE void loadModel(const QString& modelPath) { m_modelLoaded = true; }
     QString predict(double avgFreq, double duration, double maxMag, const std::vector<double>& pulseRates, const QString& species) {
         if (!m_modelLoaded) return {}; 
         return "ML Prediction";
@@ -51,7 +47,56 @@ private:
     bool m_modelLoaded = false;
 };
 
-// Custom Spectrogram Rendering
+// LIVE WAVEFORM VISUALIZER
+class WaveformItem : public QQuickPaintedItem {
+    Q_OBJECT
+public:
+    explicit WaveformItem(QQuickItem* parent = nullptr);
+    Q_INVOKABLE void updateWaveform(const std::vector<double>& samples);
+    void paint(QPainter* painter) override;
+
+private:
+    std::vector<double> waveformData;
+    QMutex mutex;
+};
+
+WaveformItem::WaveformItem(QQuickItem* parent) : QQuickPaintedItem(parent) {
+    setRenderTarget(QQuickPaintedItem::FramebufferObject);
+}
+
+void WaveformItem::updateWaveform(const std::vector<double>& samples) {
+    QMutexLocker locker(&mutex);
+    waveformData = samples;
+    update();
+}
+
+void WaveformItem::paint(QPainter* painter) {
+    QMutexLocker locker(&mutex);
+    if (waveformData.empty()) return;
+
+    painter->fillRect(boundingRect(), Qt::black);
+    QPen pen(QColor("#58a6ff"), 2.0);
+    painter->setPen(pen);
+
+    double centerY = height() / 2.0;
+    double scaleY = height() * 0.45;
+
+    for (size_t i = 1; i < waveformData.size(); ++i) {
+        double x1 = (i-1) * width() / (waveformData.size() - 1);
+        double x2 = i * width() / (waveformData.size() - 1);
+        double y1 = centerY - waveformData[i-1] * scaleY;
+        double y2 = centerY - waveformData[i] * scaleY;
+        painter->drawLine(QPointF(x1, y1), QPointF(x2, y2));
+    }
+
+    painter->setPen(QPen(QColor(40, 40, 40), 1));
+    for (int i = 1; i < 4; ++i) {
+        double y = i * height() / 4.0;
+        painter->drawLine(0, y, width(), y);
+    }
+}
+
+// LOGARITHMIC SPECTROGRAM VISUALIZER
 class SpectrogramItem : public QQuickPaintedItem {
     Q_OBJECT
 public:
@@ -88,7 +133,8 @@ void SpectrogramItem::addColumn(const std::vector<double>& magnitudes) {
     }
 
     for (size_t y = 0; y < magnitudes.size() && y < static_cast<size_t>(img.height()); ++y) {
-        int intensity = std::clamp(static_cast<int>(magnitudes[y] * 255.0), 0, 255);
+        double db = 20 * std::log10(std::max(magnitudes[y], 1e-8));
+        int intensity = std::clamp(static_cast<int>((db + 70) * 3.5), 0, 255);
         int hue = 280 - (intensity * 240 / 255); 
         QColor color = QColor::fromHsv(hue, 255, std::min(255, intensity + 50));
         img.setPixelColor(colIndex, img.height() - 1 - y, color);
@@ -97,14 +143,11 @@ void SpectrogramItem::addColumn(const std::vector<double>& magnitudes) {
     update();
 }
 
-void SpectrogramItem::clear() {
-    QMutexLocker locker(&mutex);
-    clear_internal();
-    update();
-}
+void SpectrogramItem::clear() { QMutexLocker locker(&mutex); clear_internal(); update(); }
 void SpectrogramItem::clear_internal() { img.fill(Qt::black); colIndex = 0; }
 void SpectrogramItem::paint(QPainter* painter) { QMutexLocker locker(&mutex); painter->drawImage(boundingRect(), img); }
 
+// FFT ALGORITHM
 class FFT {
 public:
     static void forward(std::vector<std::complex<double>>& data) {
@@ -138,6 +181,7 @@ private:
     }
 };
 
+// MASTER ANALYZER ENGINE
 class CaviaAnalyzer : public QObject {
     Q_OBJECT
     Q_PROPERTY(QStringList translations READ translations NOTIFY translationsChanged)
@@ -146,7 +190,6 @@ class CaviaAnalyzer : public QObject {
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
     Q_PROPERTY(QStringList savedSessions READ savedSessions NOTIFY savedSessionsChanged)
     
-    // New Config Properties
     Q_PROPERTY(QString petName READ petName WRITE setPetName NOTIFY petNameChanged)
     Q_PROPERTY(double sensitivity READ sensitivity WRITE setSensitivity NOTIFY sensitivityChanged)
     Q_PROPERTY(bool saveRawWav READ saveRawWav WRITE setSaveRawWav NOTIFY saveRawWavChanged)
@@ -159,6 +202,7 @@ public:
     ~CaviaAnalyzer();
 
     void setSpectrogram(SpectrogramItem* item) { spectrogram = item; }
+    void setWaveform(WaveformItem* item) { waveform = item; }
 
     QStringList translations() const { return m_translations; }
     QStringList savedSessions() const { return m_savedSessions; }
@@ -196,11 +240,13 @@ private:
     void stopRecording();
     void processAudioChunk(const QByteArray& chunk);
     void analyzeFrame(const int16_t* data, int offset, int sr);
-    void classifyCall(double freq, double duration, double timestamp, double maxMag);
+    double computeAutocorrelationPulseRate(const std::vector<double>& waveformSamples, int sr);
+    void classifyCall(double freq, double duration, double timestamp, double maxMag, double pulseRate);
     void writeWavFile(const QString& filename);
 
     MLClassifier* mlClassifier = nullptr;
     SpectrogramItem* spectrogram = nullptr;
+    WaveformItem* waveform = nullptr;
 
     QAudioSource* audioSource = nullptr;
     QIODevice* audioDevice = nullptr;
@@ -209,7 +255,7 @@ private:
     QByteArray m_synthData;
 
     QByteArray audioBuffer;
-    QByteArray sessionWavBuffer; // Holds raw audio for export
+    QByteArray sessionWavBuffer; 
     
     QStringList m_translations;
     QStringList m_savedSessions;
@@ -226,6 +272,7 @@ private:
     int sampleRate = PREFERRED_SAMPLE_RATES.last();
     std::vector<double> noiseFloorProfile;
     QJsonArray currentSessionData;
+    std::vector<double> recentSamples;
 };
 
 CaviaAnalyzer::CaviaAnalyzer(QObject* parent) : QObject(parent) {
@@ -298,7 +345,6 @@ void CaviaAnalyzer::startRecording() {
     }
     QAudioDevice device = devices.first();
 
-    // Iterate through requested sample rates to find highest supported (Ultrasonic -> Standard)
     QAudioFormat format;
     format.setChannelCount(1);
     format.setSampleFormat(QAudioFormat::Int16);
@@ -354,7 +400,7 @@ void CaviaAnalyzer::stopRecording() {
 
 void CaviaAnalyzer::processAudioChunk(const QByteArray& chunk) {
     audioBuffer.append(chunk);
-    if (m_saveRawWav) sessionWavBuffer.append(chunk); // Save raw data for export
+    if (m_saveRawWav) sessionWavBuffer.append(chunk); 
     
     const int16_t* data = reinterpret_cast<const int16_t*>(audioBuffer.constData());
     int totalSamples = audioBuffer.size() / sizeof(int16_t);
@@ -371,8 +417,44 @@ void CaviaAnalyzer::processAudioChunk(const QByteArray& chunk) {
     }
 }
 
+double CaviaAnalyzer::computeAutocorrelationPulseRate(const std::vector<double>& waveformSamples, int sr) {
+    if (waveformSamples.size() < 100) return 0.0;
+
+    std::vector<double> envelope(waveformSamples.size());
+    for (size_t i = 0; i < waveformSamples.size(); ++i) {
+        envelope[i] = std::abs(waveformSamples[i]);
+    }
+    
+    std::vector<double> autocorr(envelope.size() / 2, 0.0);
+    for (size_t lag = 1; lag < envelope.size() / 2; ++lag) {
+        for (size_t i = 0; i < envelope.size() - lag; ++i) {
+            autocorr[lag] += envelope[i] * envelope[i + lag];
+        }
+    }
+
+    double maxVal = 0;
+    int bestLag = 0;
+    for (size_t lag = sr / 100; lag < autocorr.size(); ++lag) { 
+        if (autocorr[lag] > maxVal) {
+            maxVal = autocorr[lag];
+            bestLag = lag;
+        }
+    }
+
+    if (bestLag == 0) return 0.0;
+    return static_cast<double>(sr) / bestLag;
+}
+
 void CaviaAnalyzer::analyzeFrame(const int16_t* data, int offset, int sr) {
     if (m_isPlaying) return;
+
+    // Send data to the UI Waveform 
+    std::vector<double> wf(WAVEFORM_SAMPLES);
+    for (int i = 0; i < WAVEFORM_SAMPLES; ++i) {
+        int idx = i * (FFT_SIZE / WAVEFORM_SAMPLES);
+        wf[i] = data[offset + idx] / 32768.0;
+    }
+    if (waveform) waveform->updateWaveform(wf);
 
     std::vector<std::complex<double>> frame(FFT_SIZE);
     for (int i = 0; i < FFT_SIZE; ++i) {
@@ -397,11 +479,10 @@ void CaviaAnalyzer::analyzeFrame(const int16_t* data, int offset, int sr) {
         
         double mag = std::abs(fftData[k]);
         
-        // Calibration logic
         if (m_isCalibrating) {
             noiseFloorProfile[k] = (noiseFloorProfile[k] + mag) / 2.0;
         } else {
-            mag = std::max(0.0, mag - noiseFloorProfile[k]); // Subtract noise floor
+            mag = std::max(0.0, mag - noiseFloorProfile[k]); 
         }
         
         mags[k] = mag;
@@ -420,7 +501,6 @@ void CaviaAnalyzer::analyzeFrame(const int16_t* data, int offset, int sr) {
     static double freqSum = 0;
     static int callFrames = 0;
 
-    // Adjusted dynamic threshold based on sensitivity slider
     double baseThreshold = 14000.0 * (1.0 / m_sensitivity);
     bool strongSignal = (maxMag > baseThreshold) && (maxMag > avgMag * (6.0 / m_sensitivity));
     double currentTime = offset / static_cast<double>(sr);
@@ -431,18 +511,26 @@ void CaviaAnalyzer::analyzeFrame(const int16_t* data, int offset, int sr) {
             callStart = currentTime;
             freqSum = 0;
             callFrames = 0;
+            recentSamples.clear(); 
         }
         freqSum += peakFreq;
         callFrames++;
+        
+        for(int i = 0; i < FFT_SIZE; i++) {
+            recentSamples.push_back(data[offset + i] / 32768.0);
+        }
+        
     } else if (inCall) {
         inCall = false;
         double duration = (callFrames * HOP_SIZE) / static_cast<double>(sr);
         double avgFreq = freqSum / callFrames;
-        classifyCall(avgFreq, duration, callStart, maxMag);
+        
+        double pulseRate = computeAutocorrelationPulseRate(recentSamples, sr);
+        classifyCall(avgFreq, duration, callStart, maxMag, pulseRate);
     }
 }
 
-void CaviaAnalyzer::classifyCall(double freq, double duration, double timestamp, double maxMag) {
+void CaviaAnalyzer::classifyCall(double freq, double duration, double timestamp, double maxMag, double pulseRate) {
     if (duration < 0.02) return;
     QString speciesStr = (m_species == GuineaPig) ? "Guinea Pig" : "Capybara";
     std::vector<double> currentPulseRates; 
@@ -450,21 +538,20 @@ void CaviaAnalyzer::classifyCall(double freq, double duration, double timestamp,
 
     QString meaning;
     
-    // Upgraded Algorithmic Classification based on biological ethology limits
     if (m_species == GuineaPig) {
-        if (freq >= 261 && freq <= 476 && duration >= 0.5) {
-            // Age Estimator based on F0 structural drop
+        if (pulseRate >= 13.0 && pulseRate <= 25.0 && duration >= 0.5) {
             QString ageStr = "Adult";
             if (freq > 400) ageStr = "Pup (<10 days)";
             else if (freq > 300) ageStr = "Adolescent";
-            meaning = QString("Purr / Rumble Strutting [%1]\n> Contentment or Dominance").arg(ageStr);
+            meaning = QString("Purr / Rumble Strutting [%1]\n> Pulse Rate: %2 Hz").arg(ageStr).arg(pulseRate, 0, 'f', 1);
         }
         else if (freq >= 400 && freq <= 500 && duration >= 0.05 && duration <= 0.2) meaning = "Chutter\n> Exploration / General Comfort";
         else if (freq >= 500 && freq <= 3500 && duration >= 0.25 && duration <= 1.0) meaning = "Wheek / Whistle\n> Food Anticipation / Excitement";
         else if (freq >= 500 && freq <= 1500 && duration >= 0.25 && duration <= 0.5) meaning = "Squeal\n> Minor Pain / Social Dispute";
         else if (freq >= 800 && duration >= 0.5 && duration <= 0.7) meaning = "Scream / Shriek\n> Extreme Fear / Predator Alarm";
         else if (freq >= 4500 && freq <= 6000 && duration < 0.1) meaning = "Chirp (Bird-song)\n> Deep Calming / Rare";
-        else if (freq >= 1000 && freq <= 4000 && duration < 0.1) meaning = "Teeth Chattering\n> Warning / Aggression (Back off)";
+        else if (freq >= 1000 && freq <= 4000 && duration < 0.1) meaning = "Chirrup\n> Aerial Predator Alarm";
+        else if (freq >= 100 && freq <= 1000 && duration >= 0.1 && maxMag > 15000) meaning = "Teeth Chattering\n> Warning / Aggression (Back off)";
         else if (freq >= 200 && freq <= 300 && duration > 1.0) meaning = "Whining / Moaning\n> Discomfort / Mild Fear";
         else if (freq >= 100 && freq <= 250 && duration > 0.05 && maxMag < 18000) meaning = "Bubbling\n> Deep Relaxation / Bonding";
         else if (freq >= 3000 && freq <= 5000 && duration > 0.5) meaning = "Medical Warning: Clicking / Wheezing\n> Possible Respiratory Distress (Seek Vet)";
@@ -501,7 +588,6 @@ void CaviaAnalyzer::saveCurrentSession() {
     QString basePath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/CaviaBioacoustics";
     QDir().mkpath(basePath);
     
-    // Save JSON
     QString jsonFilename = basePath + "/session_" + m_petName + "_" + timestampStr + ".json";
     QJsonObject root;
     root["subject"] = m_petName;
@@ -514,7 +600,6 @@ void CaviaAnalyzer::saveCurrentSession() {
         file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
     }
     
-    // Save RAW WAV if toggled
     if (m_saveRawWav && !sessionWavBuffer.isEmpty()) {
         writeWavFile(basePath + "/raw_audio_" + m_petName + "_" + timestampStr + ".wav");
     }
@@ -534,16 +619,16 @@ void CaviaAnalyzer::writeWavFile(const QString& filename) {
         out.setByteOrder(QDataStream::LittleEndian);
         
         out.writeRawData("RIFF", 4);
-        out << static_cast<quint32>(36 + sessionWavBuffer.size()); // File size - 8
+        out << static_cast<quint32>(36 + sessionWavBuffer.size());
         out.writeRawData("WAVE", 4);
         out.writeRawData("fmt ", 4);
-        out << static_cast<quint32>(16); // Subchunk1Size
-        out << static_cast<quint16>(1);  // AudioFormat (PCM)
-        out << static_cast<quint16>(1);  // NumChannels
-        out << static_cast<quint32>(sampleRate); // SampleRate
-        out << static_cast<quint32>(sampleRate * 1 * 2); // ByteRate
-        out << static_cast<quint16>(2);  // BlockAlign
-        out << static_cast<quint16>(16); // BitsPerSample
+        out << static_cast<quint32>(16); 
+        out << static_cast<quint16>(1);  
+        out << static_cast<quint16>(1);  
+        out << static_cast<quint32>(sampleRate); 
+        out << static_cast<quint32>(sampleRate * 1 * 2);
+        out << static_cast<quint16>(2);  
+        out << static_cast<quint16>(16); 
         out.writeRawData("data", 4);
         out << static_cast<quint32>(sessionWavBuffer.size());
         out.writeRawData(sessionWavBuffer.constData(), sessionWavBuffer.size());
@@ -595,7 +680,7 @@ void CaviaAnalyzer::playCall(const QString& callType) {
         totalDurationSecs += durationSecs;
     };
 
-if (callType == "Purr") {
+    if (callType == "Purr") {
         for(int i=0; i<10; ++i) { appendTone(300, 300, 0.05, false, 0.1); appendSilence(0.016); }
     } else if (callType == "Chutter") {
         for(int i=0; i<4; ++i) { appendTone(450, 480, 0.075, true, 0.2); appendSilence(0.05); }
@@ -636,7 +721,7 @@ if (callType == "Purr") {
 }
 
 // -----------------------------------------------------------------
-// UPGRADED QML FRONTEND (3 Tabs + Margins + Settings)
+// UPGRADED QML FRONTEND (3 Tabs + Margins + Settings + Waveform)
 // -----------------------------------------------------------------
 const char* qmlData = R"QML(
 import QtQuick
@@ -697,15 +782,34 @@ ApplicationWindow {
 
         Text { text: backend.status; color: "#58a6ff"; font.pixelSize: 13; font.italic: true; Layout.alignment: Qt.AlignHCenter }
 
-        Rectangle {
+        ColumnLayout {
             Layout.fillWidth: true
-            Layout.preferredHeight: 180
-            color: "black"
-            border.color: "#30363d"
-            border.width: 2
-            radius: 4
-            clip: true
-            Spectrogram { id: spectro; anchors.fill: parent; anchors.margins: 2; objectName: "spectroItem" }
+            Layout.preferredHeight: 220
+            spacing: 6
+
+            // Top Box: The Live Waveform
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                color: "black"
+                border.color: "#30363d"
+                border.width: 2
+                radius: 4
+                clip: true
+                Waveform { id: wf; anchors.fill: parent; anchors.margins: 2; objectName: "waveformItem" }
+            }
+
+            // Bottom Box: The Spectrogram
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                color: "black"
+                border.color: "#30363d"
+                border.width: 2
+                radius: 4
+                clip: true
+                Spectrogram { id: spectro; anchors.fill: parent; anchors.margins: 2; objectName: "spectroItem" }
+            }
         }
 
         RowLayout {
@@ -781,7 +885,7 @@ ApplicationWindow {
                                     {c: "Capy Click", m: "Click (Contact)"},
                                     {c: "Capy Bark", m: "Bark (Alarm)"},
                                     {c: "Capy Whistle", m: "Whistle (Distress)"},
-                                    {c: "Capy Whine", m: "Whine (Appease)"}
+                                    {c: "Capy Whine", m: "Whine (Appease)"},
                                     {c: "Tooth-Chatter", m: "Chatter (Threat)"}
                                 ]
                             Button {
@@ -850,13 +954,12 @@ ApplicationWindow {
         }
 
         Text {
-                    text: "<a href='https://raw.githubusercontent.com/ewanp2025/CaviaBioacoustics/main/PRIVACY.md'>Privacy Policy</a>"
-                    color: "#58a6ff"
-                    font.pixelSize: 13
-                    Layout.alignment: Qt.AlignHCenter
-                    onLinkActivated: (link) => Qt.openUrlExternally(link)
-                }
-
+            text: "<a href='https://raw.githubusercontent.com/ewanp2025/CaviaBioacoustics/main/PRIVACY.md'>Privacy Policy</a>"
+            color: "#58a6ff"
+            font.pixelSize: 13
+            Layout.alignment: Qt.AlignHCenter
+            onLinkActivated: (link) => Qt.openUrlExternally(link)
+        }
     }
 }
 )QML";
@@ -864,14 +967,23 @@ ApplicationWindow {
 int main(int argc, char *argv[]) {
     QGuiApplication app(argc, argv);
     qmlRegisterType<SpectrogramItem>("Bioacoustics", 1, 0, "Spectrogram");
+    qmlRegisterType<WaveformItem>("Bioacoustics", 1, 0, "Waveform");
+    
     QQmlApplicationEngine engine;
     CaviaAnalyzer backend;
     engine.rootContext()->setContextProperty("backend", &backend);
     engine.loadData(qmlData);
+    
     if (engine.rootObjects().isEmpty()) return -1;
-    if (auto* spectro = engine.rootObjects().first()->findChild<SpectrogramItem*>("spectroItem")) {
+    
+    auto root = engine.rootObjects().first();
+    if (auto* spectro = root->findChild<SpectrogramItem*>("spectroItem")) {
         backend.setSpectrogram(spectro);
     }
+    if (auto* wf = root->findChild<WaveformItem*>("waveformItem")) {
+        backend.setWaveform(wf);
+    }
+    
     return app.exec();
 }
 #include "main.moc"
