@@ -375,7 +375,7 @@ void CaviaAnalyzer::startRecording() {
     }
 
     m_isRecording = true;
-    m_status = QString("Listening on %1 kHz").arg(sampleRate / 1000.0);
+    //m_status = QString("Listening on %1 kHz").arg(sampleRate / 1000.0);
     emit isRecordingChanged();
     emit statusChanged();
 
